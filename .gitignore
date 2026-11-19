@@ -1,0 +1,38 @@
+# 虚拟环境
+.venv/
+venv/
+
+# 环境变量与密钥
+.env
+.env.*
+*.key
+*.pem
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 抓取缓存与临时媒体文件
+plain-talk-decoder-cache/
+*.mp3
+*.m4a
+*.wav
+*.mp4
+*.mkv
+*.webm
+*.flv
+*.part
+*.ytdl
+
+# 用户画像文件（只存本地，不入库）
+profile.md
+.plain-talk-decoder/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

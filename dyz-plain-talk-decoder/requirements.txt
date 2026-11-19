@@ -1,0 +1,7 @@
+# 核心依赖：只有“抓取链接”功能需要。纯文本解码不需要安装任何东西。
+# requests：发起网页请求（带超时）
+requests>=2.31
+# beautifulsoup4：解析网页结构，提取标题、作者、正文
+beautifulsoup4>=4.12
+# readability-lxml：从普通网页里抽出正文，去掉导航和广告
+readability-lxml>=0.8.1

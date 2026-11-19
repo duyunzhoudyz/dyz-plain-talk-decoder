@@ -1,0 +1,6 @@
+# 真实网络冒烟测试的链接清单（P2-10）。每行：类型 链接。# 开头是注释。
+# 这些地址会被真实访问，每个只请求一次、失败不重试。
+wechat https://mp.weixin.qq.com/s/bXiHp1AKiRMsXdc49cEUvg
+wechat https://mp.weixin.qq.com/s/MBuuMb4DF-K9kpDAsb1EuQ
+web http://www.ruanyifeng.com/blog/2026/11/weekly-issue-419.html
+web https://example.com/
