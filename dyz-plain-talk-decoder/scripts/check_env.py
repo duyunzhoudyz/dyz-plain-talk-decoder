@@ -15,7 +15,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from typing import Any, Optional
 
@@ -85,24 +84,20 @@ def check_optional() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
 
     ytdlp = check_module("yt_dlp")
-    if ytdlp is None:
-        # 也可能是单独安装的命令行程序
-        exe = shutil.which("yt-dlp")
-        if exe:
-            try:
-                out = subprocess.run(
-                    [exe, "--version"], capture_output=True, text=True, timeout=10
-                ).stdout.strip()
-                ytdlp = out or "unknown"
-            except Exception:
-                ytdlp = "unknown"
-    stale = _ytdlp_age_hint(ytdlp) if ytdlp and ytdlp != "unknown" else ""
+    if ytdlp == "unknown":
+        # yt_dlp 顶层没有 __version__，版本号在 yt_dlp.version 子模块里
+        ytdlp = check_module("yt_dlp.version") or ytdlp
+    cli_note = ""
+    if ytdlp is None and shutil.which("yt-dlp"):
+        # 只有单独的命令行程序不够：视频脚本通过 import yt_dlp 使用 Python 库
+        cli_note = "检测到 yt-dlp 命令行程序，但本技能的脚本需要 Python 库。"
+    stale = _ytdlp_age_hint(ytdlp) if ytdlp else ""
     items.append(
         {
             "name": "yt-dlp",
             "ok": ytdlp is not None,
             "version": ytdlp or "",
-            "hint": ("" if ytdlp else "视频功能需要：pip install yt-dlp") or stale,
+            "hint": ("" if ytdlp else cli_note + "视频功能需要：pip install yt-dlp") or stale,
             "needed_for": "视频字幕与音频下载（Phase 3 启用）",
         }
     )

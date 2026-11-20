@@ -253,16 +253,18 @@ class TestRouting:
     def test_video_platforms_detected(self, url, platform):
         assert fc.video_platform_of(url) == platform
 
-    def test_video_link_returns_honest_failure_without_network(self, monkeypatch):
-        import requests
+    def test_video_link_missing_ytdlp_fails_honestly(self, monkeypatch):
+        # Phase 3：视频走漏斗；缺少 yt-dlp 时不联网、不脑补，诚实返回失败与指引
+        import sys
 
-        monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应联网")))
+        monkeypatch.setitem(sys.modules, "yt_dlp", None)  # 让 import yt_dlp 抛 ImportError
         r = fc.fetch("https://www.bilibili.com/video/BV1xx")
         assert_contract(r)
         assert r["status"] == "failed"
         assert r["source_type"] == "video"
+        assert r["error_reason"] == "missing_dependency"
         assert r["content_text"] == ""
-        assert "字幕" in r["user_hint"]
+        assert "yt-dlp" in r["user_hint"]
 
 
 # ------------------------------------------------------------------ HTTP 规则
@@ -412,6 +414,44 @@ class TestCheckEnv:
         assert data["capabilities"]["paste_text"] is True
         assert data["capabilities"]["fetch_articles"] is False
         assert "pip install" in data["user_hint"]
+
+    def test_ytdlp_version_read_from_submodule(self, monkeypatch):
+        """yt_dlp 顶层没有 __version__；应从 yt_dlp.version 子模块取，过旧提示才能生效。"""
+        sys.path.insert(0, str(SCRIPTS))
+        import check_env
+
+        def fake_check(name):
+            return {"yt_dlp": "unknown", "yt_dlp.version": "2020.01.01"}.get(name)
+
+        monkeypatch.setattr(check_env, "check_module", fake_check)
+        monkeypatch.setattr(check_env.shutil, "which", lambda name: None)
+        data = check_env.run_checks()
+        item = next(i for i in data["optional"] if i["name"] == "yt-dlp")
+        assert item["ok"] is True
+        assert item["version"] == "2020.01.01"
+        assert "pip install -U yt-dlp" in item["hint"]  # 过旧版本给出升级提示
+
+    def test_cli_only_ytdlp_is_not_ok(self, monkeypatch):
+        """只有命令行 yt-dlp 可执行文件、没有 Python 库时不能报 ok。
+
+        视频脚本通过 import yt_dlp 使用库；P4-05 全新环境实测发现旧版
+        check_env 回退检测命令行程序会误报 video_subtitles=true。
+        """
+        sys.path.insert(0, str(SCRIPTS))
+        import check_env
+
+        monkeypatch.setattr(check_env, "check_module", lambda name: None)
+        monkeypatch.setattr(
+            check_env.shutil,
+            "which",
+            lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None,
+        )
+        data = check_env.run_checks()
+        item = next(i for i in data["optional"] if i["name"] == "yt-dlp")
+        assert item["ok"] is False
+        assert "pip install yt-dlp" in item["hint"]
+        assert "Python 库" in item["hint"]
+        assert data["capabilities"]["video_subtitles"] is False
 
 
 class TestVeryShortContent:
