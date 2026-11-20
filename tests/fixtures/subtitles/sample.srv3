@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<timedtext format="3">
+<body>
+<text start="0" dur="12">大家好，今天我们来聊聊固态电池的最新进展。</text>
+<text start="12" dur="12">先说结论：能量密度确实提升了，但量产成本还没有降下来。</text>
+<text start="24" dur="12">第一代样品在实验室里做到了每公斤四百瓦时。</text>
+<text start="36" dur="12">注意，这是实验室数据，不是量产线上的数据。</text>
+<text start="48" dur="12">厂商公布的循环寿命是八百次，测试温度是二十五度。</text>
+<text start="60" dur="12">到了冬天零下的环境，实际表现还要打折扣。</text>
+<text start="72" dur="12">价格方面，目前每度电的成本大约是液态电池的两倍。</text>
+<text start="84" dur="12">所以短期内它只会出现在高端车型上。</text>
+<text start="96" dur="12">如果你最近打算买车，不必为了等它而推迟决定。</text>
+<text start="108" dur="10">以上就是今天的内容，我们下期再见。</text>
+</body>
+</timedtext>

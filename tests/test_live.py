@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "dyz-plain-talk-decoder" / "scripts"))
 
 import fetch_content as fc  # noqa: E402
 from extractors.base import TOTAL_BUDGET, find_block_keyword  # noqa: E402
+from extractors.video import L01_BUDGET  # noqa: E402
 
 URL_FILE = Path(__file__).resolve().parent / "live_urls.txt"
 
@@ -52,11 +53,16 @@ def test_live_fetch(kind: str, url: str):
     print(f"\n[{kind}] {url}\n  status={r['status']} platform={r['platform']} "
           f"reason={r['error_reason']!r} 标题={r['title'][:30]!r} 正文={len(r['content_text'])}字 用时={elapsed:.1f}s")
 
-    # 硬性要求：预算内返回、合法结果
-    assert elapsed <= TOTAL_BUDGET + 5, f"超出时间预算：{elapsed:.1f}s"
+    # 硬性要求：预算内返回、合法结果（视频 L0/L1 用自己的预算）
+    budget = L01_BUDGET if kind == "video" else TOTAL_BUDGET
+    assert elapsed <= budget + 5, f"超出时间预算：{elapsed:.1f}s"
     assert r["status"] in ("success", "partial", "failed")
     if kind == "wechat":
         assert r["platform"] in ("wechat", "web")
+    if kind == "video":
+        assert r["source_type"] == "video"
+        if r["status"] == "success":
+            assert r["funnel_level"] in ("L1", "L2", "L3")
 
     # 红线：success 不能带拦截特征（短正文才检查，长文里出现“验证码”等词是正常的）
     if r["status"] == "success":

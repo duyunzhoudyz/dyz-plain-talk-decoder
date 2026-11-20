@@ -9,9 +9,10 @@
 - 只要输出了 JSON 就以退出码 0 结束，成败由 `status` 字段表达；
 - 预期内的失败都转成 `error_reason` + `user_hint`，不向用户暴露堆栈。
 
-本版（Phase 2）只处理图文：普通网页、公众号、微博/X/小红书。
-视频链接（B站、YouTube、抖音等）要到 Phase 3 才支持，这里只返回结构化的“暂不支持”。
-`--frames` / `--allow-long` / `--start` / `--end` 是为视频准备的参数，本版接受但不使用。
+图文：普通网页、公众号、微博/X/小红书。
+视频（B站、YouTube、抖音、视频号）：走省流漏斗 L0→L1，字幕不合格且配置了 ASR 时进 L2；
+`--frames` 触发 L3 抽帧（复用缓存），`--allow-long` 越过 30 分钟时长闸门，
+`--start`/`--end` 只处理指定时间段。
 """
 
 from __future__ import annotations
@@ -39,6 +40,12 @@ from extractors.base import (  # noqa: E402
     make_result,
 )
 from extractors.social import SocialExtractor  # noqa: E402
+from extractors.video import (  # noqa: E402
+    L01_BUDGET,
+    VIDEO_HOSTS,
+    VideoExtractor,
+    parse_time_spec,
+)
 from extractors.web import WebExtractor  # noqa: E402
 from extractors.wechat import WechatExtractor  # noqa: E402
 
@@ -50,17 +57,6 @@ SHORT_LINK_HOSTS = {
     "xhslink.com",
     "youtu.be",
     "url.cn",
-}
-
-# 视频平台：Phase 3 才支持。域名 -> 平台代号
-VIDEO_HOSTS = {
-    "bilibili.com": "bilibili",
-    "b23.tv": "bilibili",
-    "youtube.com": "youtube",
-    "youtu.be": "youtube",
-    "douyin.com": "douyin",
-    "iesdouyin.com": "douyin",
-    "channels.weixin.qq.com": "web",  # 视频号：PRD 5.1 的 platform 枚举里没有单列，如实用 web
 }
 
 # 追踪参数：这些参数只用于统计来源，去掉不影响页面内容
@@ -176,7 +172,15 @@ def route(url: str) -> Any:
 # ------------------------------------------------------------ 主流程
 
 
-def fetch(raw_input: str, budget: float = TOTAL_BUDGET) -> dict[str, Any]:
+def fetch(
+    raw_input: str,
+    budget: float = TOTAL_BUDGET,
+    *,
+    frames: bool = False,
+    allow_long: bool = False,
+    start_sec: Optional[float] = None,
+    end_sec: Optional[float] = None,
+) -> dict[str, Any]:
     """完整的抓取流程。无论发生什么都返回合法结果字典，不抛异常。"""
     deadline = time.monotonic() + budget
     try:
@@ -192,17 +196,15 @@ def fetch(raw_input: str, budget: float = TOTAL_BUDGET) -> dict[str, Any]:
 
         video_platform = video_platform_of(url)
         if video_platform:
-            # Phase 3 才有视频能力，这里诚实地说做不到，不假装读过
-            return make_result(
-                "failed",
-                source_type="video",
-                platform=video_platform,
-                url=url,
-                error_reason="missing_dependency",
-                user_hint=(
-                    "这个版本还不能自动读取视频。请把视频的字幕或文字稿复制后粘贴给我，"
-                    "也可以截几张关键画面发给我。"
-                ),
+            # 视频走省流漏斗；L0/L1 有独立的时间预算，L2/L3 是长任务不受它限制
+            video_deadline = time.monotonic() + L01_BUDGET
+            return VideoExtractor(video_platform).extract(
+                url,
+                video_deadline,
+                frames=frames,
+                allow_long=allow_long,
+                start_sec=start_sec,
+                end_sec=end_sec,
             )
 
         extractor = route(url)
@@ -220,10 +222,10 @@ def fetch(raw_input: str, budget: float = TOTAL_BUDGET) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="抓取链接内容并输出标准 JSON")
     parser.add_argument("input", help="链接，或包含链接的整段分享文本")
-    parser.add_argument("--frames", action="store_true", help="（视频）抽帧，本版未实现")
-    parser.add_argument("--allow-long", action="store_true", help="（视频）越过时长闸门，本版未实现")
-    parser.add_argument("--start", default="", help="（视频）起始时间，本版未实现")
-    parser.add_argument("--end", default="", help="（视频）结束时间，本版未实现")
+    parser.add_argument("--frames", action="store_true", help="（视频）L3 抽帧，复用已有缓存")
+    parser.add_argument("--allow-long", action="store_true", help="（视频）用户同意后越过 30 分钟时长闸门")
+    parser.add_argument("--start", default="", help="（视频）起始时间，如 00:10:00")
+    parser.add_argument("--end", default="", help="（视频）结束时间，如 00:20:00")
     return parser
 
 
@@ -237,7 +239,30 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         args = build_parser().parse_args(argv)
-        result = fetch(args.input)
+        try:
+            start_sec = parse_time_spec(args.start) if args.start.strip() else None
+            end_sec = parse_time_spec(args.end) if args.end.strip() else None
+        except ValueError:
+            result = failed_result(
+                "web", "", "not_found",
+                user_hint="时间格式没认出来。请用 00:10:00 或 10:00 这样的写法告诉我起止时间。",
+            )
+            start_sec = end_sec = None
+            args = None
+        if args is not None:
+            if start_sec is not None and end_sec is not None and end_sec <= start_sec:
+                result = failed_result(
+                    "web", "", "not_found",
+                    user_hint="结束时间要比开始时间晚。请检查一下 --start 和 --end。",
+                )
+            else:
+                result = fetch(
+                    args.input,
+                    frames=args.frames,
+                    allow_long=args.allow_long,
+                    start_sec=start_sec,
+                    end_sec=end_sec,
+                )
     except SystemExit:
         # argparse 参数错误：也要输出 JSON，不让用户看到用法堆栈
         result = failed_result(

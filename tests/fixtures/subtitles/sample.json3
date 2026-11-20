@@ -1,0 +1,15 @@
+{
+  "events": [
+    {"tStartMs": 0, "dDurationMs": 12000, "segs": [{"utf8": "大家好，今天我们来聊聊固态电池的最新进展。"}]},
+    {"tStartMs": 12000, "dDurationMs": 12000, "segs": [{"utf8": "先说结论：能量密度确实提升了，"}, {"utf8": "但量产成本还没有降下来。"}]},
+    {"tStartMs": 24000, "dDurationMs": 12000, "segs": [{"utf8": "第一代样品在实验室里做到了每公斤四百瓦时。"}]},
+    {"tStartMs": 36000, "dDurationMs": 12000, "segs": [{"utf8": "注意，这是实验室数据，不是量产线上的数据。"}]},
+    {"tStartMs": 48000, "dDurationMs": 12000, "segs": [{"utf8": "厂商公布的循环寿命是八百次，测试温度是二十五度。"}]},
+    {"tStartMs": 60000, "dDurationMs": 12000, "segs": [{"utf8": "到了冬天零下的环境，实际表现还要打折扣。"}]},
+    {"tStartMs": 72000, "dDurationMs": 12000, "segs": [{"utf8": "价格方面，目前每度电的成本大约是液态电池的两倍。"}]},
+    {"tStartMs": 84000, "dDurationMs": 12000, "segs": [{"utf8": "所以短期内它只会出现在高端车型上。"}]},
+    {"tStartMs": 96000, "dDurationMs": 12000, "segs": [{"utf8": "如果你最近打算买车，不必为了等它而推迟决定。"}]},
+    {"tStartMs": 108000, "dDurationMs": 10000, "segs": [{"utf8": "以上就是今天的内容，我们下期再见。"}]},
+    {"tStartMs": 118000, "dDurationMs": 2000}
+  ]
+}

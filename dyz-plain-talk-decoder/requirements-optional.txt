@@ -1,0 +1,13 @@
+# 可选依赖：不装也能用文字和网页解码。按需开启对应能力。
+# 视频字幕与音频下载（L0/L1/L2 需要）
+yt-dlp>=2025.1
+# 云端语音转文字（ASR）客户端：OpenAI 兼容接口（OpenAI、Groq、百炼 compatible-mode）
+# 百炼兼容方言（chat+input_audio）要求 SDK >= 1.52
+# 百炼原生协议（qwen-audio 系列）只用标准库，不装 openai 也能用
+openai>=1.52
+# 本地语音转文字（ASR），离线可用
+faster-whisper>=1.0
+# 另需系统级 ffmpeg（含 ffprobe），不在 pip 里：
+#   Windows: winget install ffmpeg
+#   macOS:   brew install ffmpeg
+#   Linux:   用发行版包管理器安装 ffmpeg

@@ -1,0 +1,19 @@
+{
+  "font_size": 0.4,
+  "font_color": "#FFFFFF",
+  "background_alpha": 0.5,
+  "background_color": "#9C27B0",
+  "Stroke": "none",
+  "body": [
+    {"from": 0.0, "to": 12.0, "location": 2, "content": "大家好，今天我们来聊聊固态电池的最新进展。"},
+    {"from": 12.0, "to": 24.0, "location": 2, "content": "先说结论：能量密度确实提升了，但量产成本还没有降下来。"},
+    {"from": 24.0, "to": 36.0, "location": 2, "content": "第一代样品在实验室里做到了每公斤四百瓦时。"},
+    {"from": 36.0, "to": 48.0, "location": 2, "content": "注意，这是实验室数据，不是量产线上的数据。"},
+    {"from": 48.0, "to": 60.0, "location": 2, "content": "厂商公布的循环寿命是八百次，测试温度是二十五度。"},
+    {"from": 60.0, "to": 72.0, "location": 2, "content": "到了冬天零下的环境，实际表现还要打折扣。"},
+    {"from": 72.0, "to": 84.0, "location": 2, "content": "价格方面，目前每度电的成本大约是液态电池的两倍。"},
+    {"from": 84.0, "to": 96.0, "location": 2, "content": "所以短期内它只会出现在高端车型上。"},
+    {"from": 96.0, "to": 108.0, "location": 2, "content": "如果你最近打算买车，不必为了等它而推迟决定。"},
+    {"from": 108.0, "to": 118.0, "location": 2, "content": "以上就是今天的内容，我们下期再见。"}
+  ]
+}

@@ -1,6 +1,12 @@
-# 真实网络冒烟测试的链接清单（P2-10）。每行：类型 链接。# 开头是注释。
+# 真实网络冒烟测试的链接清单（P2-10、P3-08）。每行：类型 链接。# 开头是注释。
 # 这些地址会被真实访问，每个只请求一次、失败不重试。
 wechat https://mp.weixin.qq.com/s/bXiHp1AKiRMsXdc49cEUvg
 wechat https://mp.weixin.qq.com/s/MBuuMb4DF-K9kpDAsb1EuQ
 web http://www.ruanyifeng.com/blog/2026/11/weekly-issue-419.html
 web https://example.com/
+# Phase 3 视频冒烟（2026-11-20 已人工跑过一遍，结果见施工文档第 7 节）
+video https://www.youtube.com/watch?v=jNQXAC9IVRw
+video https://www.youtube.com/watch?v=dQw4w9WgXcQ
+video https://youtu.be/jNQXAC9IVRw
+video https://www.bilibili.com/video/BV1AdkMBKEf9
+video https://b23.tv/BV1nKPLzuEZ5
