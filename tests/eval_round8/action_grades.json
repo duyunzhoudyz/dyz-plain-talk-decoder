@@ -1,0 +1,79 @@
+{
+  "review_type": "post_hoc_supplement",
+  "reviewer_type": "independent_ai",
+  "scope": "事后补充的独立 AI 阅卷。仅据四道冻结题的题面与逐题匿名 A/B/C 答案判断；不替代预注册评分、真人选择或实测阅读时间。",
+  "criteria": {
+    "unsupported_accusation": "只有答卷明确且无依据地指认罪责、欺骗或动机，才记为 true。指出资料缺口、利益关系、论证不足，或出现遗漏、画像越界，不自动构成指控。",
+    "actionable": "答卷给出读者能实际执行的下一步，例如指明向谁问什么、调取什么材料作何比较，或明确例行安排照旧即可。不给篇幅或格式加分。"
+  },
+  "cases": {
+    "Q03": {
+      "A": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「这不等于测速不实」把按台收费与测速造假分开，没有指认欺骗；「带自己的带子和卷盘，按平常一次作业的时长试跑」写明了要带什么、怎么试。"
+      },
+      "B": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「不能仅凭这一点认定测速造假」明确了推断边界；开头说「催人锁位」对应明示的付款限额，没有说名额虚构。「请店方书面确认按什么排序」给出了对象、问题和答复形式。"
+      },
+      "C": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「实测也不是独立测评」交代的是数据来源，没有说经销商编造测速；「付款前让门店出示书面活动规则」并核对排位和不到店的处理方式，是当场能做的事。"
+      }
+    },
+    "Q09": {
+      "A": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「也不能据此反推没有站换好」只划定检索摘要的证明范围，没指认谁造假；「转述时保留“九个试点站合并后的每班平均”」给了可直接使用的转述口径。"
+      },
+      "B": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「尚无完工证据」没有断言虚报；「要判断“每一站”就得看九站各自的两月均值」指定了要比较的站点、月份和指标，即使没有单设建议段也可执行。"
+      },
+      "C": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「全区进度未核实」评的是证据，没有指认蓄意夸报；「逐站变化要看分站月表」和「全区更换进度要看36站完工记录」把两项待核说法分别对应到了具体材料。"
+      }
+    },
+    "Q15": {
+      "A": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「既不是业绩，也不是有事瞒着」没有把程序用语解释成隐瞒；「去馆照旧，巡场照表」已告诉到馆者和值班人员沿用现行安排。"
+      },
+      "B": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「这是例行表态，没有明显新信号」与题内不变的安排一致，没有指认不当动机；「到馆照原来的时间和办法登记」交代了何时去、怎么登记。"
+      },
+      "C": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「没说上月开得好不好」指出的是公报没给结论，不是指责场馆表现差；「去馆里的人照旧」后面点明开放时间、登记办法都没改，到馆者无需另作安排。"
+      }
+    },
+    "Q23": {
+      "A": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「还没确定的是能约到几次」没有把不保证名额说成店家故意不给约；「能不能先把时段订好，再买月卡？」是读者拿六个计划日期可以直接向版画房问的问题。"
+      },
+      "B": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「表上明说不保名额」承认限制已经披露，没有指认隐瞒；建议先向店员要排期，若只能分批订再问「剩下的哪天开放预约？」，对象与所需信息都清楚。"
+      },
+      "C": {
+        "unsupported_accusation": false,
+        "actionable": true,
+        "evidence": "「『不保证名额』也不等于约不到」区分了限制和实际余位，没有归咎店家；「先把六个可去的日期发给版画房」并问买卡前能订下哪几场，给出了材料、对象和问题。"
+      }
+    }
+  }
+}

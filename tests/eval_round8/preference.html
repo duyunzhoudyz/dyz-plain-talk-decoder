@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>四题匿名偏好选票</title>
+<style>
+:root {color-scheme:light dark;--paper:#f5f7fa;--sheet:#fff;--ink:#18263b;--muted:#465970;--edge:#708298;--action:#214984;--on-action:#fff;--focus:#976400}
+@media(prefers-color-scheme:dark){:root{--paper:#181d24;--sheet:#232a33;--ink:#f0f3f7;--muted:#c0cbd8;--edge:#8e9cab;--action:#aecaff;--on-action:#16273d;--focus:#edc47d}}
+*{box-sizing:border-box} [hidden]{display:none!important} body{margin:0;background:var(--paper);color:var(--ink);font:1rem/1.7 'Microsoft YaHei','PingFang SC',sans-serif}
+main{margin:auto;max-width:48rem;padding:clamp(1rem,4vw,3rem) 1rem 4rem} header{border-bottom:2px solid var(--action);margin-bottom:1.5rem} h1{font-size:1.2rem} h2{font-size:1.55rem} h3{font-size:1.13rem} p{margin:.65rem 0 1rem} .note,#status{color:var(--muted)}
+#material,article{padding:clamp(.9rem,3vw,1.6rem);background:var(--sheet);margin:1rem 0} article{border-inline-start:.25rem solid var(--edge)} article h3,#material h3{margin:0 0 .5rem} article p,#material p{white-space:pre-wrap;overflow-wrap:anywhere} #material ul{padding-inline-start:1.5rem}
+label{display:block;font-weight:650;margin:1rem 0 .25rem} select,button,textarea,option{font:inherit;color:var(--ink);background-color:var(--sheet)} select,button,textarea{border:1px solid var(--edge);border-radius:.25rem;max-width:100%} select,button{min-height:2.75rem;padding:.45rem .8rem} textarea{width:100%;min-height:5rem;padding:.5rem;resize:vertical} button{cursor:pointer;touch-action:manipulation} .primary{background:var(--action);color:var(--on-action);border-color:var(--action)} button:hover{text-decoration:underline} button:active{transform:translateY(1px)} :focus-visible{outline:3px solid var(--focus);outline-offset:3px} .actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1rem}
+</style></head>
+<body><main><header><h1>四题匿名偏好选票</h1><p id="status" aria-live="polite">个人选择，不需要猜答案来自哪里。</p></header>
+<noscript>请用启用了 JavaScript 的浏览器打开本文件；不需要联网。</noscript>
+<section id="setup"><h2>如果自己要用，你会选哪份？</h2>
+<p>每题先看题面和三份完整原答，再选最愿意用的一份，也可以并列或都不选。请独立完成，不与其他读者讨论。</p>
+<p><strong>参加过本轮单答复述、读过这些答案或看过评分的人，不做这张选票。</strong>请告诉主持人另换一位读者。主持人把 P01 至 P06 顺序分给不同的新读者；一人一包，满六人再循环。不要自行换包或重做。</p>
+<p class="note">阅读和选择分别计时；两题之间可休息。页面不联网、不自动保存，不收集姓名或联系方式。刷新或关闭会丢失未导出的内容，每做完一题都可以导出。</p>
+<form id="setup-form" autocomplete="off"><label for="pack">主持人分配的包号</label><select id="pack" required><option value="">请选择包号</option></select>
+<div class="actions"><button class="primary">开始第一题</button></div></form></section>
+<section id="task" hidden><h2 id="task-title" tabindex="-1"></h2><p class="note">先读题面和三份答案。阅读段计的是这整段时间，不是任意一份答案的单独阅读时间。切换窗口不暂停。</p>
+<div id="material"><h3>原题</h3><div id="prompt"></div></div><div id="reports"></div>
+<button id="finish-read" type="button" class="primary">三份已读完，开始选择</button>
+<form id="vote-form" hidden autocomplete="off"><h2 id="vote-title" tabindex="-1">你会用哪份答案？</h2><p class="note">可以向上回看。回看、选择和写理由的时间都计入选择段。</p>
+<label for="favorite">最愿意使用</label><select id="favorite" required></select>
+<label for="why">为什么这样选？</label><p class="note" id="why-hint">可以写哪份漏了重要条件、哪条建议能照做，或有没有无依据的指控；也可以写自己的理由。请不要写个人资料。不便说明可写“不便说明”；跳过本题不必写。</p>
+<textarea id="why" aria-describedby="why-hint" spellcheck="false"></textarea><div class="actions"><button class="primary">确认本题选择</button></div></form></section>
+<section id="ready" hidden><h2 id="ready-title" tabindex="-1"></h2><p id="ready-note"></p><div class="actions"><button class="primary" type="button" id="next">开始下一题</button><button type="button" id="download">导出匿名选票 JSON</button></div>
+<p class="note">只有点击导出才会写入下载文件，不会上传。请手动把最后一次导出的 JSON 交给主持人；中途退出就交现有的部分选票，不重做。确认已保存后再关闭。</p></section>
+</main><script type="application/json" id="data">{"questions":{"Q03":{"prompt":{"id":"Q03","request":"帮我看懂这段话，决定要不要继续了解。标准篇幅，平实一点。","text":"【合成材料｜虚构经销商的折苇T4桌面理线机介绍】厂表写连续送带最高每分钟18米，是6毫米平纹棉带空载60秒的结果。我拿10毫米斜纹带带着卷盘跑了10分钟，测到每分钟11米。上月已有2400份意向登记。本场先付40元锁位，到店抵70元，名额写着前60位；没写按登记还是付款排序，也没写没到店退不退。用我的口令成交，我按台拿服务费。"},"answers":{"A":"如果你平时确实要成卷送带，这台机器值得再了解，但先别付40元锁位。先看它能不能用你常用的带子，连续跑到你需要的速度。\n\n厂表的每分钟18米，是用6毫米平纹棉带空载跑60秒测出的最高速度。经销商说，换成10毫米斜纹带、带着卷盘跑10分钟，测到的是每分钟11米。两次用的带子、负载和时长都不同，不能拿11米断定厂表夸大，也不能把18米当日常速度。如果你的用法接近第二种，11米更有参考价值；最好带自己的带子和卷盘，按平常一次作业的时长试跑。\n\n上月的2400份是意向登记，不是2400台成交，也看不出这场的60个名额还剩多少。40元到店抵70元，用得上才相当于多抵30元。付款前让对方写清：前60位按登记还是付款排序，你这笔是否能拿到抵扣，没排上或没到店能不能退。经销商已说明用他的口令成交，他按台拿服务费；这不等于测速不实，但他有促成交易的利益。速度可以试，优惠得问清，不必为了抢位先交钱。","B":"## ARGUMENT SUMMARY:\n经销商给了两个有条件的速度数字，又用登记人数和限额优惠催人锁位。值得问下去，不必现在付钱。\n\n## TRUTH CLAIMS:\n以下只评题内证据。能确认介绍怎么写，不等于数字已经过独立核实。\n\n**CLAIM: 厂表标称最高每分钟18米。**\n- CLAIM SUPPORT EVIDENCE: 据介绍，这个数是在6毫米平纹棉带、空载、连续送带60秒时测得的。\n- CLAIM REFUTATION EVIDENCE: 题内没有同条件反测；后面的11米不是对厂表的反证。\n- LOGICAL FALLACIES: 原话有限定；把「最高」读成日常速度，才是以偏概全。\n- CLAIM RATING: B。LABELS: 厂表转述、限定工况。\n\n**CLAIM: 经销商试跑测到每分钟11米。**\n- CLAIM SUPPORT EVIDENCE: 经销商说用10毫米斜纹带，带着卷盘跑了10分钟。如果你的用法相近，这个数比空载峰值更有参考意义。\n- CLAIM REFUTATION EVIDENCE: 没有相同工况下的反例，也没有重复测试记录。带宽、织法、负载和时长一起变了，不能断定是哪一项造成差距。\n- LOGICAL FALLACIES: 「我……测到」是一次试跑，不是对每台机器的保证。\n- CLAIM RATING: B。LABELS: 单次自测。\n\n**CLAIM: 上月有2400份意向登记。**\n- CLAIM SUPPORT EVIDENCE: 数字来自经销商口述，单位是「份」。\n- CLAIM REFUTATION EVIDENCE: 没有登记明细或去重口径，也没有成交、交付或满意度数据。这不足以说数字是假的，也不足以说有2400人买了。\n- LOGICAL FALLACIES: 用「2400份」证明机器好用，是把人气当成质量证据。\n- CLAIM RATING: C。LABELS: 兴趣指标、未经核实。\n\n**CLAIM: 前60位付40元，到店可抵70元。**\n- CLAIM SUPPORT EVIDENCE: 介绍写着「先付40元锁位，到店抵70元」。若能足额抵用，相比不参加、按同价购买，实际只省30元，并非白得70元。\n- CLAIM REFUTATION EVIDENCE: 没说按登记还是付款排序，也没说不到店退不退。上月的登记数不能告诉你本场还剩几位。规则没写，不等于一定不退。\n- LOGICAL FALLACIES: 「前60位」给人紧迫感，不证明现在付款就能排上。\n- CLAIM RATING: B（就明示条款而言）。LABELS: 有条件优惠、退款未明。\n\n**CLAIM: 用经销商口令成交，他按台获酬。**\n- CLAIM SUPPORT EVIDENCE: 他直接说明「用我的口令成交，我按台拿服务费」；成交越多，他拿到的服务费就越多。\n- CLAIM REFUTATION EVIDENCE: 题内无相反材料，也没披露每台金额。\n- LOGICAL FALLACIES: 有销售利益，值得另找依据；不能仅凭这一点认定测速造假。\n- CLAIM RATING: B。LABELS: 已披露的销售利益。\n\n## OVERALL SCORE:\nLOWEST CLAIM SCORE: C；HIGHEST CLAIM SCORE: B；AVERAGE CLAIM SCORE: B（四项B、一项C）。\n\n## OVERALL ANALYSIS:\n可以继续了解，先别付40元。带自己的带子和卷盘试跑，再请店方书面确认按什么排序、你能否抵70元，以及不到店怎么退款。","C":"## 一句话讲人话\n折苇 T4 值得继续了解，但不用先付 40 元。经销商把两次测速的条件说得很具体，也说明了用他的口令成交，他每卖一台就拿一笔服务费。\n\n## 核心事实（去水版）\n- 据经销商转述，厂表写的最高 18 米/分钟，是用 6 毫米平纹棉带空载跑 60 秒测的。他自己用 10 毫米斜纹带，带着卷盘跑了 10 分钟，测得 11 米/分钟。\n- 上月有 2400 份意向登记，不是卖出了 2400 台，也看不出本场还剩几个名额。\n- 本场写的是前 60 位先付 40 元，到店抵 70 元。如果能按约抵扣，比原价少付的是 30 元，不是 70 元。\n\n## 滤镜拆解 / 潜台词\n- **对方重点让你看的**：除了报最高速度，他还给了带卷盘的测试结果，这比只报厂表更有参考价值。带子、负载和时长都不同，11 米不能推翻 18 米，两者也都不是日常速度保证。\n- **对方没有提到或一笔带过的**：前 60 位按登记还是按付款排？没到店，40 元退不退？这两点决定了锁位能不能拿到优惠、不去会不会损失钱。\n\n## 可信度与事实核查\n综合可信度：中。两次测速并不矛盾，但锁位规则不全。测速数字、登记数量和抵扣条件均未联网核查，依据只是这段经销商介绍，实测也不是独立测评。\n\n## 给你的建议\n如果速度关系到你每天能做多少活，带常用带料和卷盘，请门店按你平常工作的时长试跑，记下实际送了多少米。付款前让门店出示书面活动规则，确认你排得上、不到店时钱怎么处理，再决定要不要锁位。"}},"Q09":{"prompt":{"id":"Q09","request":"只用附带的模拟检索记录，逐句看看哪些话有根据。不要联网，不要补网址；标准篇幅。","text":"【合成材料｜虚构的泊纹驿站快讯】九个试点站每班平均等座时间从二月12分钟降到三月7分钟。九站每一站都更快，唯一原因是换了分号器。新区全部36站已经换好。","evidence":[{"id":"E1","source":"合成材料：泊纹调度组月表","access":"已读正文节选","content":"九个试点站两月均记录相同数目的班次。九站合并后，每班等座时长的算术平均：二月12分钟、三月7分钟。三月更换分号器，且同时增开等候区。本节不列逐站数据。"},{"id":"E2","source":"合成材料：格窗消息抄报","access":"已读正文节选","content":"据泊纹调度组月表，九站合并均值降为7分钟。未另做调查。"},{"id":"E3","source":"合成材料：泥纹班刊","access":"已读正文节选","content":"本刊转引格窗消息抄报的九站等座报道，无本刊采集数据。"},{"id":"E4","source":"合成材料：新区装置采办清单检索卡","access":"仅见检索摘要，未取得正文","content":"检索摘要：新区36站分号器更新方案已受理……"}]},"answers":{"A":"## 一句话讲人话\n九个试点站合在一起算，每班平均少等了5分钟，这个数有月表支持。至于哪几站变快、为什么变快、新区换了多少站，快讯都比材料说得更满。\n\n## 可信度与事实核查\n**综合可信度：中。** 以下只对照题内模拟检索记录，未联网核查。\n\n1. **“二月12分钟，三月7分钟”：有根据。** 泊纹调度组月表（E1）的正文节选写明，九站两月记录的班次数相同；把九站的班次合并，算出的每班平均等座时间正是这两个数。格窗消息抄报（E2）引用E1，泥纹班刊（E3）又转引E2。三份文字只有一个数据源，不是三次独立印证。\n2. **“每一站都更快，唯一原因是换了分号器”：两层都缺证据。** E1不列逐站数据；即使某站没变快，九站平均也可能下降。E1确实记载三月换了分号器，但同时也增开了等候区。记录没把两项变化的影响分开，不能把少等的5分钟全算在分号器头上。\n3. **“新区全部36站已经换好”：没有完工依据。** 采办清单检索卡（E4）只见摘要，没取得正文。摘要说的是36站更新方案“已受理”，不是36站“已换好”；也不能据此反推没有站换好。\n\n## 给你的建议\n转述时保留“九个试点站合并后的每班平均”。要说每站都快了，得看各站二月、三月的对照表；要说36站全换好，得看逐站完工或验收记录。","B":"1. **“九个试点站每班平均等座时间从二月12分钟降到三月7分钟”——有根据，但这是九站合并的平均数。** E1《泊纹调度组月表》正文节选明确给出这两个数：两个月记录的班次数相同，合并计算后，三月平均每班比二月少等5分钟。E2抄报引用E1，E3班刊又转引E2，都没有另行采集数据，所以是同一条证据，不是三份独立印证。\n\n2. **“九站每一站都更快，唯一原因是换了分号器”——两层判断都没有得到证实。** 一是整体平均下降，并不排除个别站持平或变慢；E1没有逐站数据，要判断“每一站”就得看九站各自的两月均值。二是E1确实记载了三月换分号器，但同期还增开了等候区。现有记录分不清两项变化各起了什么作用，既不能认定换分号器是唯一原因，也不能断言它没起作用。\n\n3. **“新区全部36站已经换好”——尚无完工证据。** E4只见检索摘要，未取得正文；摘要说的是36站更新**方案已受理**，不是36站设备已装好。要确认“全部换好”，还需覆盖36站的安装完成或验收记录。现有材料既不能确认全部完工，也不能据此说哪些站尚未完工。","C":"## ARGUMENT SUMMARY:\n\n快讯称九站合并均值下降，进而断言各站都更快、全靠换机，并称新区已全部换好。\n\n## TRUTH CLAIMS:\n\n### CLAIM: ① 九站合并后，每班平均等座时间从12分钟降至7分钟。\n\n- **CLAIM SUPPORT EVIDENCE:** 调度组月表正文节选（E1）直接给出同九个试点站的每班算术平均值：二月12分钟，三月7分钟，少了5分钟。E2明确转述E1，E3又转述E2，均无自采数据；三份材料只有一个数据来源。\n- **CLAIM REFUTATION EVIDENCE:** 题内没有相反数字。E1未列逐站数据，不妨碍核实这条合并均值。\n- **LOGICAL FALLACIES:** 按「九站合并」理解，没有明显谬误。\n- **CLAIM RATING:** A（题内直接证实）。**LABELS:** 合并统计、原表可核。\n\n### CLAIM: ② 九个试点站每一站都更快。\n\n- **CLAIM SUPPORT EVIDENCE:** E1仅支持九站整体平均少等5分钟，没有给出任何一站两个月的均值对照。\n- **CLAIM REFUTATION EVIDENCE:** 即使两月班次数相同，也可能有站持平或变慢，而其他站降得更多。材料没有指出哪站变慢，故不能判为已证伪。\n- **LOGICAL FALLACIES:** 「每一站都更快」把整体均值的变化当成每个站的变化。\n- **CLAIM RATING:** D（缺逐站证据）。**LABELS:** 整体推及个体。\n\n### CLAIM: ③ 等座时间下降的唯一原因是换了分号器。\n\n- **CLAIM SUPPORT EVIDENCE:** E1记载三月换了分号器，均值也在三月下降，只能确认两件事同期发生。\n- **CLAIM REFUTATION EVIDENCE:** E1还记载同期增开了等候区。没有把两项措施分开比较的数据，既不能排除等候区有作用，也不能断言它确有作用。\n- **LOGICAL FALLACIES:** 「唯一原因」把时间上的先后对比当成排他性因果证据。\n- **CLAIM RATING:** D（未识别独立因果作用）。**LABELS:** 同期变化、排他归因。\n\n### CLAIM: ④ 新区36站已全部换好分号器。\n\n- **CLAIM SUPPORT EVIDENCE:** E1记载的是九站试点的更换。涉及36站的E4仅见检索摘要、未取得正文，摘要原话是「新区36站分号器更新方案已受理」。\n- **CLAIM REFUTATION EVIDENCE:** 受理的是方案，不是完工验收。题内没有覆盖36站的完工记录，也没有某站尚未更换的记录；全区进度未核实。\n- **LOGICAL FALLACIES:** 「全部36站已经换好」既扩大了试点记录的范围，又把方案受理当成实施完成。\n- **CLAIM RATING:** D（缺全区完工证据）。**LABELS:** 范围扩大、进度混淆。\n\n## OVERALL SCORE:\n\n- **LOWEST CLAIM SCORE:** D\n- **HIGHEST CLAIM SCORE:** A\n- **AVERAGE CLAIM SCORE:** C（四项等权，按A=4、B=3、C=2、D=1、F=0折算，均分1.75，最接近C）。\n\n## OVERALL ANALYSIS:\n\n可信的是九站合并后每班平均少等5分钟。逐站变化要看分站月表，唯一归因要区分两项措施的效果，全区更换进度要看36站完工记录。"}},"Q15":{"prompt":{"id":"Q15","request":"按极速篇幅解读这份公报，毒舌点，挑挑字眼。","text":"【合成材料｜虚构的榉砂公共刻印馆例会公报】馆务例会听取上月日常开放情况汇报，重申按已公布的值班表开展本月例行巡场。开放时段与登记办法保持不变。会议按议程结束。"},"answers":{"A":"## ARGUMENT SUMMARY:\n去馆照旧，巡场照表。「重申」听着郑重，值班表却不是新的。\n\n## TRUTH CLAIMS:\n| CLAIM: | CLAIM SUPPORT EVIDENCE:（题内原文） | CLAIM REFUTATION EVIDENCE: | LOGICAL FALLACIES: | CLAIM RATING: | LABELS: |\n|---|---|---|---|---|---|\n| 例会听了上月汇报 | 「听取」 | 无；未给汇报结论 | 无 | C | 会议自述 |\n| 本月仍按原表巡场 | 「重申按已公布的值班表」 | 无；安排不等于已执行 | 无 | B | 既有安排 |\n| 开放时段、登记办法不变 | 「保持不变」 | 无；未附旧规供比对 | 无 | B | 到馆须知 |\n| 会议依议程结束 | 「按议程结束」 | 无；未附议程 | 无 | C | 程序自述 |\n\n## OVERALL SCORE:\nLOWEST CLAIM SCORE: C；HIGHEST CLAIM SCORE: B；AVERAGE CLAIM SCORE: B/C 之间（取 C）。\n\n## OVERALL ANALYSIS:\n这份虚构公报把「没改」说清了。「按议程结束」只说明会开完了，既不是业绩，也不是有事瞒着。","B":"**一句话**：这是例行表态，没有明显新信号；这类公报不用吐槽口吻。\n\n**三条事实**（原文明确）：①会上听了上月开放情况的汇报。②“重申”指本月仍按已公布的值班表巡场。③开放时段和登记办法都没变。\n\n**建议**：到馆照原来的时间和办法登记即可；若要判断措辞有无变化，得对照上次公报。（未核查）","C":"去馆里的人照旧：开放时间没改，登记办法也没改。挑字眼：「听取」只说听了汇报，没说上月开得好不好；「重申」的是旧值班表，不是加派人手。至于「会议按议程结束」，它最准确地告诉你一件事：会散了。"}},"Q23":{"prompt":{"id":"Q23","request":"用标准篇幅帮我读懂这张价目表，我想决定下一步问什么。","text":"【合成材料｜虚构的软梧版画房价目表】共用压印台按次30元；月卡120元，限购买后连续30天内的工作日14至17时，每次占台时长和按次票相同。按次票也可用于周末。月卡不可退、不顺延，每次都须约到空台，不保证名额。","profile":"这次按这个虚构情况帮我想：接下来30天我打算去6次，六次都能安排在工作日下午两点到五点。我还没有订到台。"},"answers":{"A":"你下一步最值得问的是：**「我计划这六天的工作日 14:00–17:00 来，哪些日期还有空台？能不能先把时段订好，再买月卡？」** 你的六次计划都符合月卡时段，现在还没确定的是能约到几次，而不是能不能赶来。\n\n按次 30 元，月卡 120 元，每次能用台的时间一样。六次都约到并到场，按次要 180 元，月卡省 60 元；只用五次，省 30 元；四次刚好打平；三次或更少，按次更便宜。\n\n月卡从购买日起连续算 30 天，不是 30 个工作日。没约到也不会顺延，卡不能退。**如果能先订下至少五次，而且你能到场，选月卡；如果只能确认四次或更少，先按次更稳。** 按次票还能用在周末，临时改期时比月卡灵活，但周末也要约到空台。","B":"## 一句话讲人话\n软梧版画房卖的是预付月卡，不是预留的台位：实际用台4次和按次付一样贵，从第5次起才省钱。\n\n## 核心事实（去水版）\n- 按次30元，周末也能用。月卡120元，只能在购买后连续30天内的工作日14至17时使用，每次占台时长和按次票相同。\n- 月卡每次都要约到空台，不保证名额。约不到，卡也不退款、不顺延。\n\n## 滤镜拆解 / 潜台词\n- **对方重点让你看的**：两种价格可以直接比。月卡的好处是用得多能省钱，不是每次能多用一会儿。\n- **对方没有提到或一笔带过的**：表上明说不保名额，但没列哪些时段还有空台，也没说付款前能不能先订。\n\n## 可信度与事实核查\n**综合可信度：高。** 仅看这张虚构价目表，价格、可用时段和预约限制都写得清楚，没有互相矛盾；这三项均未联网核查。空台多少要另看排期。\n\n## 给你的建议\n按你说的，未来30天计划去6次，时间都符合，但还没订到台。如果6次都约到并用上，按次是180元，月卡120元，能省60元。若实际只用4次，两种都是120元；少于4次，按次更便宜。\n\n先问店员：「能给我看接下来30天工作日14至17时的排期吗？我想去的6个时段，哪些还有空台？」再问：「付款前能先订下哪些时段？如果只能分批订，剩下的哪天开放预约？」按能落实的次数选，别把计划次数当成已订次数。","C":"## ARGUMENT SUMMARY:\n六次都约到，月卡省60元；你目前一场也没订到，先问能锁定几场。\n\n## TRUTH CLAIMS:\n\n### CLAIM: 六次都用上，月卡省60元。\n- **CLAIM SUPPORT EVIDENCE:** 价目表写明「按次30元」「月卡120元」，每次占台时长相同。你计划的六次都能排在有效期内的工作日14至17时；若六次都约到并到场，按次共180元，比月卡多60元。\n- **CLAIM REFUTATION EVIDENCE:** 题内没有反证推翻这笔条件账，但「打算去6次」不能当成已经用足六次。实际用5次省30元，4次正好持平，3次或更少则按次更便宜。\n- **LOGICAL FALLACIES:** 价目表本身没有明显谬误。把「打算去6次」读成“一定省60元”，才是把计划当结果。\n- **CLAIM RATING:** A（按题内票价计算成立）。\n- **LABELS:** 条件性结论、可复算。\n\n### CLAIM: 能配合月卡时段，不等于有台可用。\n- **CLAIM SUPPORT EVIDENCE:** 价目表明说「每次都须约到空台，不保证名额」；你也说「我还没有订到台」。购买后连续30天计时，月卡「不可退、不顺延」。\n- **CLAIM REFUTATION EVIDENCE:** 没有题内反证。「不保证名额」也不等于约不到；材料没给出你想去的日期还有几场空台。按次票也可用于周末，但这不是周末有空台的承诺。\n- **LOGICAL FALLACIES:** 未见。价目表把可用时段和预约名额分开说明了。\n- **CLAIM RATING:** A（题内条款明确）。\n- **LABELS:** 预约限制、余位未知。\n\n## OVERALL SCORE:\n- **LOWEST CLAIM SCORE:** A\n- **HIGHEST CLAIM SCORE:** A\n- **AVERAGE CLAIM SCORE:** A（评价的是题内条款与推算，不是约台成功率）。\n\n## OVERALL ANALYSIS:\n先把六个可去的日期发给版画房，问：「这些工作日14至17时各还有空台吗？买卡前能先确认并订下哪几场？」能锁定并去满5场，月卡才更省；若只确定4场，两者同价，按次不用预付整张卡。"}}},"packs":{"P01":[{"qid":"Q03","labels":"ABC"},{"qid":"Q09","labels":"BCA"},{"qid":"Q15","labels":"CAB"},{"qid":"Q23","labels":"ABC"}],"P02":[{"qid":"Q09","labels":"CAB"},{"qid":"Q15","labels":"ABC"},{"qid":"Q23","labels":"BCA"},{"qid":"Q03","labels":"BCA"}],"P03":[{"qid":"Q15","labels":"BCA"},{"qid":"Q23","labels":"CAB"},{"qid":"Q03","labels":"CAB"},{"qid":"Q09","labels":"ABC"}],"P04":[{"qid":"Q23","labels":"CBA"},{"qid":"Q03","labels":"CBA"},{"qid":"Q09","labels":"BAC"},{"qid":"Q15","labels":"ACB"}],"P05":[{"qid":"Q03","labels":"BAC"},{"qid":"Q09","labels":"ACB"},{"qid":"Q15","labels":"CBA"},{"qid":"Q23","labels":"BAC"}],"P06":[{"qid":"Q09","labels":"CBA"},{"qid":"Q15","labels":"BAC"},{"qid":"Q23","labels":"ACB"},{"qid":"Q03","labels":"ACB"}]}}</script>
+<script>
+'use strict';
+const el = id => document.getElementById(id);
+const {questions, packs} = JSON.parse(el('data').textContent);
+const votes = [];
+let pack, ballotId, start, reviewSeconds;
+function add(parent, tag, text) {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  parent.append(node);
+  return node;
+}
+function screen(id, heading) {
+  for (const section of document.querySelectorAll('main > section')) section.hidden = section.id !== id;
+  el(heading).focus({preventScroll:true});
+  window.scrollTo(0, 0);
+}
+function secondsSinceStart() { return Math.round(performance.now() - start) / 1000; }
+function beginQuestion() {
+  const {qid, labels} = packs[pack][votes.length];
+  const {prompt, answers} = questions[qid];
+  el('status').textContent = `${pack} ｜ 第 ${votes.length + 1} / ${packs[pack].length} 题`;
+  el('task-title').textContent = `${qid}　比较三份回答`;
+  const material = el('prompt');
+  material.replaceChildren();
+  add(material, 'p', prompt.request);
+  add(material, 'p', prompt.text);
+  if (prompt.profile) add(material, 'p', prompt.profile);
+  if (prompt.evidence) {
+    add(material, 'h4', '题目附带的检索记录');
+    const list = add(material, 'ul', '');
+    for (const item of prompt.evidence) add(list, 'li', `${item.id}　${item.source}（${item.access}）：${item.content}`);
+  }
+  el('reports').replaceChildren();
+  for (const label of labels) {
+    const report = add(el('reports'), 'article', '');
+    add(report, 'h3', `答案 ${label}`);
+    add(report, 'p', answers[label]);
+  }
+  const [a,b,c] = labels;
+  const select = el('favorite');
+  select.replaceChildren(new Option('请选择', ''));
+  for (const value of [a,b,c,a+b,a+c,b+c,labels]) {
+    select.add(new Option(value.length === 1 ? `答案 ${value}` : `并列：${[...value].join('、')}`, value));
+  }
+  select.add(new Option('都不选：三份都不愿用', 'none'));
+  select.add(new Option('跳过：本题不投票', 'skip'));
+  el('vote-form').reset();
+  el('vote-form').hidden = true;
+  el('finish-read').hidden = false;
+  screen('task', 'task-title');
+  start = performance.now();
+}
+for (const p of Object.keys(packs)) el('pack').add(new Option(p, p));
+el('setup-form').addEventListener('submit', event => {
+  event.preventDefault();
+  pack = el('pack').value;
+  // 同一读者的阶段性导出共用随机票号；同包号可分配给不同读者。
+  ballotId = Array.from(crypto.getRandomValues(new Uint32Array(3)), n => n.toString(16).padStart(8,'0')).join('');
+  beginQuestion();
+});
+el('finish-read').addEventListener('click', () => {
+  reviewSeconds = secondsSinceStart();
+  el('finish-read').hidden = true;
+  el('vote-form').hidden = false;
+  el('vote-title').focus();
+  start = performance.now();
+});
+el('vote-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const value = el('favorite').value, why = el('why').value.trim();
+  if (value !== 'skip' && !why) {
+    el('why').setCustomValidity('请写下理由；不便说明可以直接写“不便说明”。');
+    el('why').reportValidity();
+    el('why').setCustomValidity('');
+    return;
+  }
+  const {qid, labels} = packs[pack][votes.length];
+  const choice = value === 'none' || value === 'skip' ? value : value.length === 1 ? 'single' : 'tie';
+  votes.push({qid, position:votes.length + 1, display_order:[...labels], choice,
+    selected_labels:choice === 'none' || choice === 'skip' ? [] : [...value].sort(), reason:why,
+    three_answer_review_seconds:reviewSeconds, selection_seconds:secondsSinceStart()});
+  const done = votes.length === packs[pack].length;
+  el('ready-title').textContent = done ? '四题已结束' : '本题选择已记录';
+  el('ready-note').textContent = done ? '请导出选票并交给主持人，不要再做其他包。' : '可先导出已完成的部分，休息后再开始下一题。';
+  el('status').textContent = `${pack} ｜ 已记录 ${votes.length} / ${packs[pack].length} 题`;
+  el('next').hidden = done;
+  el('download').classList.toggle('primary', done);
+  screen('ready', 'ready-title');
+});
+el('next').addEventListener('click', beginQuestion);
+el('download').addEventListener('click', () => {
+  const result = {protocol:'round8-preference-v1', ballot_id:ballotId, pack,
+    completed:votes.length === packs[pack].length, responses:votes};
+  const blob = new Blob([JSON.stringify(result, null, 2)], {type:'application/json'});
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = `round8-preference-${pack}-${ballotId}-${votes.length}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+</script></body></html>

@@ -1,0 +1,53 @@
+{
+  "arm": "candidate",
+  "input": "用户提供的假设消息，无媒体出处；以贴文为核查对象。",
+  "method": "公开网页搜索一次；另打开三份 Python 官方正文。只把已读正文用作依据。没有运行解释器做迁移实验，没有读取其他评测臂或用户私有配置。",
+  "timing": {
+    "start_utc": "2026-11-20T15:53:32.0332473+00:00",
+    "end_utc": "2026-11-20T15:54:13.6902512+00:00",
+    "elapsed_seconds": 41.6570039,
+    "scope": "本机 UTC 墙上时钟两次采样；分别与首次搜索、首答文件写入同批发起。不是精确到请求返回的网络延迟，不包含证据整理与格式校验。"
+  },
+  "searches": [
+    {
+      "query": "site:docs.python.org/3.15 Python 3.15 UTF-8 Mode enabled by default locale encoding text files disable PEP 686",
+      "result": "返回同一份 What's new in Python 3.15 的多个章节链接。只作为发现该文档的线索，没有将搜索摘要或这些链接当成独立印证。"
+    }
+  ],
+  "opened": [
+    {
+      "id": "PEP",
+      "url": "https://peps.python.org/pep-0686/",
+      "title": "PEP 686 – Make UTF-8 mode default",
+      "read_status": "读到相关正文",
+      "passages": [
+        {"section": "Specification / Enable UTF-8 mode by default", "quote": "Python will enable UTF-8 mode by default from Python 3.15."},
+        {"section": "Specification / Enable UTF-8 mode by default", "quote": "Users can still disable UTF-8 mode by setting `PYTHONUTF8=0` or `-X utf8=0`."},
+        {"section": "Backward Compatibility", "quote": "When a Python program depends on the default encoding, this change may cause `UnicodeError`, mojibake, or even silent data corruption."}
+      ]
+    },
+    {
+      "id": "NEWS",
+      "url": "https://docs.python.org/3.15/whatsnew/3.15.html#pep-686-make-utf-8-mode-default",
+      "title": "What’s new in Python 3.15",
+      "read_status": "读到相关正文",
+      "locator": "在文内找 open('flying-circus.txt')",
+      "quote": "This means that I/O operations without an explicit encoding, for example, `open('flying-circus.txt')`, will use UTF-8."
+    },
+    {
+      "id": "OPEN",
+      "url": "https://docs.python.org/3.15/library/functions.html#open",
+      "title": "Built-in Functions / open",
+      "read_status": "读到相关正文",
+      "locator": "open()，区分 binary I/O 与 text I/O 的段落",
+      "excerpt": "the bytes having been first decoded using the default encoding or using the specified"
+    }
+  ],
+  "claims": [
+    {"claim": "从 Python 3.15 开始，UTF-8 模式默认开启。", "verdict": "已核实", "sources": ["PEP", "NEWS"], "basis": "规范给出生效版本；更新说明用没有显式 encoding 的 open() 说明默认值的实际作用。"},
+    {"claim": "以前用本地编码保存的文本现在都会被自动转换成 UTF-8。", "verdict": "存疑/有出入", "sources": ["OPEN", "NEWS", "PEP"], "basis": "读取时对原始字节做解码并返回字符，不等于写入新的 UTF-8 字节。PEP 另指出编码不匹配可能报错或乱码。GBK 名单是解释机制的例子，不是实测数据。"},
+    {"claim": "程序也不能再关掉这个模式。", "verdict": "存疑/有出入", "sources": ["PEP"], "basis": "规范明确允许环境变量 PYTHONUTF8=0 和命令行 -X utf8=0；首答说的是启动选项，不是解释器运行途中切换。"}
+  ],
+  "advice_basis": "NEWS 对没写编码的适用条件、OPEN 对显式编码的定义与 PEP 兼容性说明共同支持按文件真实编码检查读写，而不是全部改代码。试读和试写为给读者的建议。",
+  "source_relationship": "PEP 与版本说明都来自 Python 项目，后者说明同一项规范，不是两份独立实验。open() 是同项目的接口文档，用于解释读取的语义。"
+}

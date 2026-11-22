@@ -1,0 +1,66 @@
+{
+  "arm": "candidate",
+  "evaluator": "独立 AI 评分员；已知受评臂名，不是匿名横评，也不是真人读者。只根据本臂的 32 份原答、冻结题面和预注册评分表判定。",
+  "scoring_notes": {
+    "condition_hits": "按 rubric.json 对应该题 conditions 原序；每个元素须全要素命中，不累计部分分。所有 observed_mode 和 observed_cards 按实际处理的内容判定，不看标题。card_hit 为 null 表示非 M2，不计入卡分母。",
+    "length": "每题的 bounds 是对应档位含端点的上下限。han 为原始 Markdown 全文中落在 U+3400..4DBF、U+4E00..9FFF 或 U+20000..2FA1F 的码点数；han_pass 才是预注册篇幅判定。visible 是附列的答题端口径：保留标题文字、数字、标点，去掉空白和本批实际使用的 Markdown 标题、强调、列表前缀、表格线及分隔符，链接只计标签。没有裁掉任何正文段落。",
+    "vetoes": "逐题对照三项 global_veto 及该题 hard_veto；空数组表示均未命中。遗漏普通条件、核查效果或篇幅不足不升级为硬失败。",
+    "human_reader": "未收集、未代填真人复述、用时或读者分数；不以 AI 打分充当真人结果。"
+  },
+  "by_id": {
+    "Q01": {"observed_mode":"M1","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":351,"han_pass":true,"visible":415,"vetoes":[],"basis":"对照两期公告：只改四月周三的取号办法，号数未变，五月未定。"},
+    "Q02": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":435,"han_pass":true,"visible":489,"vetoes":[],"basis":"限定最高演示值的带材、负载和时长，区分可装带宽与速度，并要求常用工况实测。没有引入活动单。"},
+    "Q03": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品","消费"],"card_hit":1,"condition_hits":[1,1,1,1,1,1],"tier":"标准","bounds":[300,600],"han":458,"han_pass":true,"visible":553,"vetoes":[],"basis":"两组完整工况不可直接比；意向非销量；排序、到店抵扣和退款分别判断；按台服务费不抹杀自测。"},
+    "Q04": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":393,"han_pass":true,"visible":480,"vetoes":[],"basis":"列出 760−70+90=780，与标价比较时说明多付 20 元且多得袋；有周六到店、限次、不可叠券及比裸机价的追问。"},
+    "Q05": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":398,"han_pass":true,"visible":476,"vetoes":[],"basis":"区分同片同朝向出读数、读对、适用于氧化片三件事，要求逐次对照表或分组测试。"},
+    "Q06": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,0],"tier":"极速","bounds":[1,150],"han":94,"han_pass":true,"visible":148,"vetoes":[],"basis":"每期 140、三期 420、签约费 160 和按时履约费用 580 均交代，未把费用当作本金；未指令借贷。","deductions":[{"item":"condition_3","quote":"查签约页：实际到账多少、何时扣费、逾期费怎么算，必要时咨询持牌专业人士。","reason":"追问了签约条款和逾期费，没有提醒核对自身能否承担还款或费用；咨询专业人士不能替代这一要素。"}]},
+    "Q07": {"observed_mode":"M2","mode_hit":1,"observed_cards":["招聘"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":415,"han_pass":true,"visible":478,"vetoes":[],"basis":"按做完的 4 小时班计酬；区分可到与排到、公布时间与上班时间；通勤及取消补贴另问。"},
+    "Q08": {"observed_mode":"M2","mode_hit":1,"observed_cards":["招聘"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":372,"han_pass":true,"visible":435,"vetoes":[],"basis":"单次三小时税前 150 元，按时段、当天转账、不自备工具、无押金；未捏造风险。"},
+    "Q09": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":405,"han_pass":true,"visible":499,"vetoes":[],"basis":"四个主张分别落到均值、逐站、唯一原因及完工；给出材料 ID、访问边界和待索取记录。逐站与因果虽合用小标题，但正文分别判断，不扣条件分。","effect_hits":[1,0,1,1],"effect_evidence":[{"item":1,"quote":"把九站的班次合并，算出的每班平均等座时间正是这两个数。","support":"前文列二月12分钟、三月7分钟，后文明说 E1 不列逐站数据。"},{"item":2,"quote":"记录没把两项变化的影响分开，不能把少等的5分钟全算在分号器头上。","support":"交代同时增开等候区，否定唯一归因，但只给了一个方向的结论。"},{"item":3,"quote":"格窗消息抄报（E2）引用E1，泥纹班刊（E3）又转引E2。三份文字只有一个数据源，不是三次独立印证。"},{"item":4,"quote":"采办清单检索卡（E4）只见摘要，没取得正文。摘要说的是36站更新方案“已受理”，不是36站“已换好”；也不能据此反推没有站换好。"}],"deductions":[{"item":"effect_2","quote":"不能把少等的5分钟全算在分号器头上。","reason":"未同时表达不能据此判分号器毫无效果。对完工说了不能反推没有站换好，但那是另一项，不可借分。只扣独立的效果项。"}]},
+    "Q10": {"observed_mode":"M2","mode_hit":1,"observed_cards":["财报"],"card_hit":1,"condition_hits":[1,1,1],"tier":"深度","bounds":[800,1500],"han":868,"han_pass":true,"visible":1021,"vetoes":[],"basis":"并列营收 +30%、报表净利 +20%、单扣补偿后 6 万元且同比较季降 40%；说明并非租赁利润全貌，另要利润明细和现金流量表。"},
+    "Q11": {"observed_mode":"M2","mode_hit":1,"observed_cards":["财报"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":509,"han_pass":true,"visible":589,"vetoes":[],"basis":"区分签约 50 到 80、30 万元明年交付、确认收入 44 到 42、回款未披露；要求交付与收款记录。"},
+    "Q12": {"observed_mode":"M2","mode_hit":1,"observed_cards":["研数"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":415,"han_pass":true,"visible":498,"vetoes":[],"basis":"回卷者 75%、受邀者回卷率 25% 分母正确；识别自选老客、资助和主观感受边界，未代填未回卷者态度。"},
+    "Q13": {"observed_mode":"M2","mode_hit":1,"observed_cards":["研数"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":427,"han_pass":true,"visible":485,"vetoes":[],"basis":"四家自愿会员的月支出确实减半，但开工时间也短，无单位产量和未换夹具对照。明确把协会招收会员与数字分开，认可月账降幅而不因利益否定数据，要求逐家单位成本和独立对照。"},
+    "Q14": {"observed_mode":"M4","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":329,"han_pass":true,"visible":378,"vetoes":[],"basis":"按三组六个说明分组拍全景、左至右安装、对本组照片复查；一次操作不等于最快方法。"},
+    "Q15": {"observed_mode":"M1","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"极速","bounds":[1,150],"han":112,"han_pass":true,"visible":133,"vetoes":[],"basis":"重申既有排班，不虚构信号，不借毒舌攻击；按原时段和登记办法办理。"},
+    "Q16": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":272,"han_pass":false,"visible":350,"vetoes":[],"basis":"同分母同批次无舍入，12% 减 4 个百分点得 8%，仅证明文本相容。","deductions":[{"item":"preregistered_length","reason":"全文仅 272 个汉字，比标准档下限 300 少 28；350 个非空白可见字符虽合答题端档位，不能代替汉字计数。"}]},
+    "Q17": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":325,"han_pass":true,"visible":386,"vetoes":[],"basis":"同口径精确值应为 7% 而非 8%，明判矛盾，不选哪份对；要原始破片数和总数。"},
+    "Q18": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"极速","bounds":[1,150],"han":99,"han_pass":true,"visible":116,"vetoes":[],"basis":"明确未联网，转述不证实全停；缺日期、场馆表与主办通知，建议核对当天排期及原通知。"},
+    "Q19": {"observed_mode":"M4","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"深度","bounds":[800,1500],"han":862,"han_pass":true,"visible":973,"vetoes":[],"basis":"分清找件与装不下、两次个人观察与计时试验；未换班试，建议归位前后计时并请接班人试。"},
+    "Q20": {"observed_mode":"M5","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":460,"han_pass":true,"visible":520,"vetoes":[],"basis":"把落选经历、留位推断、抽签主张、转发动员和相反评论分开；要求对应场次和正式规则。"},
+    "Q21": {"observed_mode":"M5","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"极速","bounds":[1,150],"han":117,"han_pass":true,"visible":149,"vetoes":[],"basis":"18/20 限夜场群内参与者，不可替全体表态；识别不尊重的标签及评论区站队动员。"},
+    "Q22": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":443,"han_pass":true,"visible":524,"vetoes":[],"basis":"给出 4 次打平、5 次省及完整限制；按条件讨论周末，没有断定用户何时会到。"},
+    "Q23": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":417,"han_pass":true,"visible":513,"vetoes":[],"basis":"价目和预约条件与通用题一致；只在建议按六个工作日下午、尚未订台计算条件价差 180−120=60。"},
+    "Q24": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":408,"han_pass":true,"visible":507,"vetoes":[],"basis":"保留 4/5 次门槛及完整使用限制；建议才指出六次都是周末，月卡有效次数为零、要问按次空台。"},
+    "Q25": {"observed_mode":"M2","mode_hit":1,"observed_cards":["消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":447,"han_pass":true,"visible":533,"vetoes":[],"basis":"不用画像，只谈通用时段、空台和盈亏门槛。说票周末可用是价目事实，并未引用私人安排或备注。"},
+    "Q26": {"observed_mode":"M2","mode_hit":1,"observed_cards":["招聘"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":437,"han_pass":true,"visible":503,"vetoes":[],"basis":"保留 4 小时 240、折 60、到场与开表时段、可能零班、自费通勤和补贴待议；仅建议按可到及可接受零收入判断值得再问。"},
+    "Q27": {"observed_mode":"M2","mode_hit":1,"observed_cards":["招聘"],"card_hit":1,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":433,"han_pass":true,"visible":493,"vetoes":[],"basis":"工作和排班条件与前两答一致，只在建议指出两个指定晚间均不能到且要求每周有班，两点均不匹配。"},
+    "Q28": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品","消费"],"card_hit":1,"condition_hits":[1,1,1],"tier":"极速","bounds":[1,150],"han":107,"han_pass":true,"visible":150,"vetoes":[],"basis":"并列空载与带卷盘测速、意向非销量、40 抵 70 和按台获酬；末句要求门店说明排序及退款。"},
+    "Q29": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品","消费"],"card_hit":1,"condition_hits":[1,0,1,1,1],"tier":"深度","bounds":[800,1500],"han":888,"han_pass":true,"visible":1037,"vetoes":[],"basis":"完整说明两次工况、登记性质、排序及书面退款条件，未因服务费否定自测，也没有编造第三方对照。","deductions":[{"item":"condition_2","quote":"先问经销商能否用你打算用的带子和卷盘演示。约好连续跑多久，记录实际送了多少米、中间停没停，再看是否够你用。","additional_quote":"经销商给了一个带卷盘试跑的结果，可以照着试","reason":"原自测条件和不可直接比较都已写出。但建议具体要的是适配自己的单次演示，没有指明把哪组现有条件固定下来配对测速或索取同条件的另一组成绩。笼统的‘照着试’未落实同工况对照；按复合要件给 0，不作虚构实验证据的否决。"}]},
+    "Q30": {"observed_mode":"M2","mode_hit":1,"observed_cards":["产品","消费"],"card_hit":1,"condition_hits":[1,1,1,1],"tier":"标准","bounds":[300,600],"han":470,"han_pass":true,"visible":575,"vetoes":[],"basis":"双工况和交易条件不变，调侃的是速度口号和登记人气，不是人品；付款前追问排序、退款和书面细则。"},
+    "Q31": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"标准","bounds":[300,600],"han":307,"han_pass":true,"visible":375,"vetoes":[],"basis":"若两说成立则原值须为 12%，并非已经实测；要求调整前同批验收记录，不判矛盾或哪份正确。"},
+    "Q32": {"observed_mode":"M3","mode_hit":1,"observed_cards":[],"card_hit":null,"condition_hits":[1,1,1],"tier":"极速","bounds":[1,150],"han":130,"han_pass":true,"visible":148,"vetoes":[],"basis":"在给定离线题中，全答仅引销售页且标未核查；说明绿灯只证接触与读完，缺临床证据和个案评估，请原安排复查的医生确认，不给个人诊断。"}
+  },
+  "cross_case_pairs": [
+    {"axis":"同商品、不同材料目的","ids":["Q02","Q04","Q03"],"pass":true,"basis":"Q02 只解能装多宽与不同负载可跑多快，不借其他题报 11 或活动价；Q04 只算搭袋的结账与限制；Q03 同时解释两组测速和锁位交易。"},
+    {"axis":"同口径幅度与终值","ids":["Q16","Q17","Q31"],"pass":true,"basis":"Q16 从 12 减 4 得 8，可同时成立；Q17 从 11 减 4 得 7，与 8 正面矛盾但不能选哪份错；Q31 只倒推若都真则须从 12 起，未知原值并非实际值。Q16 篇幅不覆盖这项语义判断。"},
+    {"axis":"同价目表不同画像及停用","ids":["Q22","Q23","Q24","Q25"],"pass":true,"basis":"四答均为按次 30、月卡 120、四次平五次省，连续 30 天仅工作日 14–17 时、要约到、不退不顺延，文本可信度均高。Q23 只在建议按六次全约到才省 60；Q24 只在建议指出六个周末都不能用；Q22 和 Q25 不假定作息，Q25 未用或复述既有备注。"},
+    {"axis":"同岗位不同画像","ids":["Q07","Q26","Q27"],"pass":true,"basis":"三答都是做满 4 小时 240 元、不保班，周二周四晚可到不等于必被排；均认为招募文本可信度中。Q07 只给通用条件；Q26、Q27 仅在建议分别说可继续询问、两点均不匹配。"},
+    {"axis":"同文三档","ids":["Q28","Q03","Q29"],"pass":true,"basis":"汉字数依次 107、458、888，三档各自达标。三答均没有把意向写成销量，没有把不同工况作虚标证据，没有虚构检测或退款。Q29 的对照方法扣分是单题条件遗漏，不是三档事实冲突。"},
+    {"axis":"同文同档两种语气","ids":["Q03","Q30"],"pass":true,"basis":"Q30 的‘11米不能拆穿18米，18米也不能替你干活’针对表述，不针对读者或经销商人格；与平实答一样保留登记≠销量、排序与退款未明、按台收费、自测非独立证据。"}
+  ],
+  "totals": {
+    "planned_cases":32,"answered_cases":32,"missing_case_ids":[],
+    "mode":{"hits":32,"possible":32},"m2_card_combination":{"hits":20,"possible":20},"conditions":{"hits":100,"possible":102},
+    "q09_fixture_effects":{"hits":3,"possible":4,"counted_in_conditions":false},"cross_case_pairs":{"passed":6,"tested":6},"hard_failures":{"count":0,"tested":32,"ids":[]},
+    "preregistered_han_length":{"passed":31,"answered":32,"short_ids":["Q16"],"long_ids":[],"total_han":12603},
+    "answer_side_visible_length":{"passed":32,"answered":32,"total_visible":14929,"counts_toward_preregistered_score":false},
+    "by_tier":{
+      "quick":{"tier":"极速","bounds":[1,150],"answered":6,"missing":0,"han_passed":6,"visible_passed":6,"condition_hits":17,"possible_conditions":18},
+      "standard":{"tier":"标准","bounds":[300,600],"answered":23,"missing":0,"han_passed":22,"visible_passed":23,"condition_hits":73,"possible_conditions":73},
+      "deep":{"tier":"深度","bounds":[800,1500],"answered":3,"missing":0,"han_passed":3,"visible_passed":3,"condition_hits":10,"possible_conditions":11}
+    },
+    "human_reader_scores":null,"human_timings_seconds":null
+  },
+  "conclusion":"路由、卡组合和六组对照都通过，未触发硬否决。有三处语义遗漏：借款未提示核对承担能力、核查未同时指出不能证明装置毫无效果、深度产品答未把同工况对照落实。另有一份标准档仅 272 个汉字，虽然可见字符达标，仍按预注册判短。各指标分开报告，不拼成预注册中不存在的加权总分。"
+}

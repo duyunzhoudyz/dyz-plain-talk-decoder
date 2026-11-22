@@ -1,0 +1,48 @@
+{
+ "schema": "bullshit-detector/run@1",
+ "version": "0.14.0",
+ "mode": "quick",
+ "model": "gpt-6.2-astra",
+ "harness": "Breezell subagent",
+ "source": "source.md",
+ "report": "bs-report-python-utf8-2026-11-20.md",
+ "started": "2026-11-20T23:53:37.9496239+08:00",
+ "finished": "2026-11-20T23:56:58.8165101+08:00",
+ "source_words": 6,
+ "fetches": 6,
+ "coverage_checks": 0,
+ "tools": 48,
+ "queries": [
+  {
+   "claim": 1,
+   "pass": "first",
+   "q": "Python 3.15 default UTF-8 Mode What's New PEP 686 version change Python documentation"
+  },
+  {
+   "claim": 2,
+   "pass": "first",
+   "q": "Python 3.15 UTF-8 mode existing files legacy encoding automatically convert bytes decode open encoding Python IO reading text files PEP 686"
+  },
+  {
+   "claim": 3,
+   "pass": "first",
+   "q": "Python 3.15 disable UTF-8 Mode startup -X utf8=0 PYTHONUTF8=0 Python 3.15 command line documentation"
+  },
+  {
+   "claim": 2,
+   "pass": "follow-up",
+   "q": "site:peps.python.org/pep-0686 backward compatibility legacy encoding silently corruption file mode reading writing exchanging data UnicodeDecodeError"
+  },
+  {
+   "claim": 3,
+   "pass": "follow-up",
+   "q": "site:docs.python.org/3.15/library/os.html \"UTF-8 Mode\" \"startup\" only be enabled"
+  }
+ ],
+ "claims": {
+  "extracted": 3,
+  "checked": 3,
+  "dropped_ambiguous": 0
+ },
+ "wall_seconds": 200
+}

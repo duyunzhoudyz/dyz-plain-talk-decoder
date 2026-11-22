@@ -1,0 +1,50 @@
+{
+  "arm": "online/plain",
+  "input_type": "假设的待核查消息，没有声称来自任何媒体",
+  "searches": [
+    {
+      "query": "Python 3.15 UTF-8 mode default What's New PEP 686 local encoding open disable PYTHONUTF8 encoding locale",
+      "surface": "公开网页搜索",
+      "selected_result": "https://peps.python.org/pep-0686",
+      "other_results_used_as_evidence": false
+    }
+  ],
+  "opened_sources": [
+    {
+      "id": "pep",
+      "url": "https://peps.python.org/pep-0686/",
+      "title": "PEP 686 – Make UTF-8 mode default",
+      "excerpts": [
+        "Python will enable UTF-8 mode by default from Python 3.15.",
+        "Users can still disable UTF-8 mode by setting `PYTHONUTF8=0` or `-X utf8=0`.",
+        "When a Python program depends on the default encoding, this change may cause `UnicodeError`, mojibake, or even silent data corruption."
+      ]
+    },
+    {
+      "id": "whatsnew",
+      "url": "https://docs.python.org/3.15/whatsnew/3.15.html#utf-8-mode-by-default",
+      "title": "What’s New In Python 3.15",
+      "excerpt": "This means that I/O operations without an explicit encoding, for example, `open('flying-circus.txt')`, will use UTF-8."
+    },
+    {
+      "id": "open",
+      "url": "https://docs.python.org/3.15/library/functions.html#open",
+      "title": "Built-in Functions: open",
+      "excerpt": "first decoded using the default encoding or using the specified *encoding* if given."
+    }
+  ],
+  "claims": [
+    {"claim": "从 Python 3.15 开始，UTF-8 模式默认开启。", "verdict": "属实", "source_ids": ["pep", "whatsnew"], "basis": "规范指明生效版本，版本说明给出了未指定编码时的文件读取示例。"},
+    {"claim": "本地编码的旧文本都会被自动转换成 UTF-8。", "verdict": "错误", "source_ids": ["open", "whatsnew", "pep"], "basis": "读取是把文件字节按指定或默认编码解释为字符串，并不写回文件；更换默认编码反而可能让依赖旧编码的程序报错或读出乱码。GBK 名单是说明机制的例子，并非实测样本。"},
+    {"claim": "不能再关掉 UTF-8 模式。", "verdict": "错误", "source_ids": ["pep"], "basis": "最终规范明确保留环境变量和解释器命令行选项两种关闭方法。"},
+    {"claim": "哪些代码要调整？", "verdict": "按文件约定判断，不是全面迁移", "source_ids": ["whatsnew", "open", "pep"], "basis": "显式指定正确编码的文件读写不依赖默认值；读写旧格式却省略编码的代码应补上实际编码。关闭模式可作临时兼容措施。"}
+  ],
+  "method": "检索公开网页，提取三份官方原文后对照；未安装依赖，未进行 Python 运行实验。",
+  "timing": {
+    "clock": "本机 UTC Unix 时间戳，毫秒",
+    "start_epoch_ms": 1795190020331,
+    "end_epoch_ms": 1795190042717,
+    "elapsed_ms": 22386,
+    "scope": "起点与网页搜索并行采样，终点与首答写入并行采样；为两次采样间隔，不含随后整理证据 JSON 的时间，也不是完整端到端耗时。"
+  }
+}
