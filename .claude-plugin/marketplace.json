@@ -1,0 +1,23 @@
+{
+  "name": "dyz-plain-talk-decoder",
+  "owner": {
+    "name": "dyz-plain-talk-decoder contributors"
+  },
+  "description": "人话解码器（Plain-Talk Decoder）Claude Code 插件清单：面向中文内容的信息降噪、利益方话术祛魅、官方通稿解读与事实核查。",
+  "plugins": [
+    {
+      "name": "dyz-plain-talk-decoder",
+      "source": "./",
+      "description": "把文章、公众号、通稿、帖子与视频链接讲成人话，含五模式、五张中文利益场景卡、音视频省流漏斗与防尬黑校准。",
+      "category": "productivity",
+      "keywords": [
+        "plain-talk",
+        "fact-check",
+        "chinese",
+        "wechat",
+        "bilibili",
+        "youtube"
+      ]
+    }
+  ]
+}

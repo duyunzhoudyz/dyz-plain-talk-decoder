@@ -1,0 +1,21 @@
+{
+  "name": "dyz-plain-talk-decoder",
+  "version": "0.1.0",
+  "description": "人话解码器：把文章、公众号、通稿、帖子和视频链接讲成人话，拆解利益包装、核查关键说法并给出个人适配建议。",
+  "author": {
+    "name": "dyz-plain-talk-decoder contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "plain-talk",
+    "fact-check",
+    "chinese",
+    "content-analysis",
+    "wechat",
+    "bilibili",
+    "agent-skills"
+  ],
+  "skills": [
+    "./dyz-plain-talk-decoder"
+  ]
+}
