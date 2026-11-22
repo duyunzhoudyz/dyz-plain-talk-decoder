@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """环境自检：报告已具备与缺失的能力，并给出安装指引。
 
 用法：
@@ -16,7 +20,12 @@ import os
 import re
 import shutil
 import sys
+from pathlib import Path
 from typing import Any, Optional
+
+# 也支持 python -I scripts/check_env.py；提供方与协议判断复用转写入口。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import asr
 
 MIN_PYTHON = (3, 10)
 # yt-dlp 版本发布很频繁，太旧是视频抓取失败最常见的原因。按版本号里的日期判断。
@@ -132,38 +141,39 @@ def check_optional() -> list[dict[str, Any]]:
 
 def check_asr_config() -> dict[str, Any]:
     """ASR 是否配置。只报告“有没有设置”，**绝不输出密钥内容**。"""
-    provider = os.environ.get("ASR_PROVIDER", "").strip()
-    has_key = bool(os.environ.get("ASR_API_KEY", "").strip())
+    provider, problem = asr.get_provider()
     if not provider:
-        return {
-            "name": "asr_config",
-            "ok": False,
-            "provider": "",
-            "hint": "未配置语音转文字。没有字幕的视频需要它；也可以直接把文字稿贴给我。配置方法见 README。",
-        }
-    problems = []
-    if provider not in ("openai_compatible", "local_whisper"):
-        problems.append("ASR_PROVIDER 只能是 openai_compatible 或 local_whisper")
-    if provider == "openai_compatible" and not has_key:
-        problems.append("使用云端接口需要设置环境变量 ASR_API_KEY")
-    return {
-        "name": "asr_config",
-        "ok": not problems,
-        "provider": provider,
-        "api_key_set": has_key,
-        "hint": "；".join(problems),
+        problem = "未配置语音转文字。没有字幕的视频需要它；也可以直接把文字稿贴给我。配置方法见 README。"
+    # qwen-audio 原生协议只用标准库；qwen3-asr 兼容协议与其他云端接口需 openai。
+    client = ""
+    if provider == "local_whisper":
+        client = "faster-whisper"
+    elif provider == "openai_compatible" and not asr.is_native_dialect(os.environ.get("ASR_MODEL", "")):
+        client = "openai"
+    config = {
+        "name": "asr_config", "ok": not problem, "hint": problem,
+        "provider": provider if provider in asr.PROVIDERS else "", "required_client": client,
+        "check_scope": (
+            "video_transcribe 只表示本机配置与依赖预检通过；视频转写按 ffmpeg 生成的 PCM WAV 帧数读取时长，切片不依赖 ffprobe。"
+            "未验证云端鉴权、额度、服务或本地模型实际推理。"
+        ),
     }
+    if provider == "openai_compatible":
+        config["api_key_set"] = not problem
+    return config
 
 
-def summarize(core: list[dict], optional: list[dict], python: dict) -> dict[str, Any]:
+def summarize(core: list[dict], optional: list[dict], python: dict, asr_config: dict) -> dict[str, Any]:
     can_fetch_articles = python["ok"] and all(i["ok"] for i in core)
     ytdlp_ok = any(i["name"] == "yt-dlp" and i["ok"] for i in optional)
     ffmpeg_ok = any(i["name"] == "ffmpeg" and i["ok"] for i in optional)
+    client = asr_config["required_client"]
+    client_ok = not client or any(i["name"] == client and i["ok"] for i in optional)
     return {
         "paste_text": True,  # 粘贴文字永远可用，不需要任何安装
         "fetch_articles": can_fetch_articles,
         "video_subtitles": can_fetch_articles and ytdlp_ok,
-        "video_transcribe": can_fetch_articles and ytdlp_ok and ffmpeg_ok,
+        "video_transcribe": python["ok"] and ytdlp_ok and ffmpeg_ok and asr_config["ok"] and client_ok,
     }
 
 
@@ -172,10 +182,11 @@ def run_checks() -> dict[str, Any]:
     core = check_core()
     optional = check_optional()
     asr = check_asr_config()
-    capabilities = summarize(core, optional, python)
+    capabilities = summarize(core, optional, python, asr)
 
     todo = [i["hint"] for i in [python, *core] if not i["ok"] and i["hint"]]
-    todo += [i["hint"] for i in optional if i["hint"]]
+    todo += [i["hint"] for i in optional if i["hint"] and
+             (i["name"] not in ("openai", "faster-whisper") or i["name"] == asr["required_client"])]
     if asr["hint"]:
         todo.append(asr["hint"])
 

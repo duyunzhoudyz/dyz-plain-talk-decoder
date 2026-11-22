@@ -142,6 +142,75 @@ class TestTranscribe:
 
 
 class TestSliceAudio:
+    @pytest.mark.parametrize("fail_at", [0, 600, 1200, None])
+    def test_ffmpeg_failure_never_claims_full_transcript(self, tmp_path, monkeypatch, fail_at):
+        from subprocess import CompletedProcess
+
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(asr, "probe_duration", lambda p: 1201.0)
+        audio = tmp_path / "input.wav"
+        audio.write_bytes(b"input")
+        calls = []
+
+        def run_ffmpeg(cmd, **kw):
+            offset = int(float(cmd[cmd.index("-ss") + 1]))
+            if offset == fail_at:
+                return CompletedProcess(cmd, 1)
+            Path(cmd[-1]).write_bytes(b"slice")
+            return CompletedProcess(cmd, 0)
+
+        def transcribe(path):
+            calls.append(path.name)
+            return [(0.25, 0.75, "前文")]
+
+        monkeypatch.setattr(asr.subprocess, "run", run_ffmpeg)
+        r = asr.transcribe_file(audio, offset_sec=30, transcribe_slice=transcribe)
+        offsets = [off for off in (0, 600, 1200) if fail_at is None or off < fail_at]
+        assert r["ok"] is bool(offsets)
+        assert r.get("partial", False) is (bool(offsets) and fail_at is not None)
+        assert r["segments"] == [(off + 30.25, off + 30.75, "前文") for off in offsets]
+        assert calls == [f"slice_{i:03d}.wav" for i in range(len(offsets))]
+        if fail_at is not None:
+            assert r["error_reason"] == "network" and "切片" in r["user_hint"]
+
+    @pytest.mark.parametrize("missing", [True, False])
+    def test_ffmpeg_missing_distinguished_from_timeout(self, monkeypatch, tmp_path, missing):
+        import subprocess
+
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(asr, "probe_duration", lambda _: 1201.0)
+
+        def fail(cmd, **kwargs):
+            if missing:
+                raise FileNotFoundError("ffmpeg")
+            raise subprocess.TimeoutExpired(cmd, 120)
+
+        monkeypatch.setattr(asr.subprocess, "run", fail)
+        r = asr.transcribe_file(tmp_path / "a.wav", transcribe_slice=lambda _: pytest.fail("没有可转写的片段"))
+        assert not r["ok"] and r["segments"] == []
+        assert r["error_reason"] == ("missing_dependency" if missing else "network")
+        assert ("找不到 ffmpeg" if missing else "超时") in r["user_hint"]
+
+    def test_unknown_large_audio_not_sent_whole(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(asr, "probe_duration", lambda p: None)
+        audio = tmp_path / "unknown.wav"
+        with audio.open("wb") as f:
+            f.truncate(30_000_000)
+        r = asr.transcribe_file(audio, transcribe_slice=lambda p: pytest.fail("时长未知的大文件不应整份送去转写"))
+        assert not r["ok"] and not r["segments"]
+        assert r["error_reason"] and "时长" in r["user_hint"]
+
+    def test_pcm_wav_duration_without_ffprobe(self, tmp_path, monkeypatch):
+        import wave
+
+        audio = tmp_path / "generated.wav"
+        with wave.open(str(audio), "wb") as w:
+            w.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+            w.writeframes(b"\0\0" * 24000)
+        monkeypatch.setattr(asr.shutil, "which", lambda _: None)
+        assert asr.probe_duration(audio) == 1.5
+
     def test_short_audio_not_sliced(self, tmp_path, monkeypatch):
         monkeypatch.setattr(asr, "probe_duration", lambda p: 120.0)
         audio = tmp_path / "a.wav"

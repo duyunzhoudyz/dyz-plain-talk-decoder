@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "requests>=2.31",
+#   "beautifulsoup4>=4.12",
+#   "readability-lxml>=0.8.1",
+# ]
+# ///
 """统一抓取入口：输入归一化、按域名路由、输出标准 JSON（PRD 5.1）。
 
 用法：
@@ -39,9 +47,11 @@ from extractors.base import (  # noqa: E402
     log,
     make_result,
 )
+from extractors.podcast import PodcastExtractor  # noqa: E402
 from extractors.social import SocialExtractor  # noqa: E402
 from extractors.video import (  # noqa: E402
     L01_BUDGET,
+    LOCAL_MEDIA_EXTS,
     VIDEO_HOSTS,
     VideoExtractor,
     parse_time_spec,
@@ -161,9 +171,23 @@ def video_platform_of(url: str) -> str:
     return ""
 
 
+def detect_local_media(raw: str) -> Optional[Path]:
+    """判断输入是否为本机存在的音视频文件路径（如会议录音、录屏）。"""
+    text = (raw or "").strip().strip('"').strip("'")
+    if not text or "\n" in text or re.match(r"^https?://", text, re.I):
+        return None
+    try:
+        path = Path(text).expanduser()
+        if path.is_file() and path.suffix.lower() in LOCAL_MEDIA_EXTS:
+            return path
+    except OSError:
+        return None
+    return None
+
+
 def route(url: str) -> Any:
     """按域名选提取器；未知域名走通用网页提取器。"""
-    for extractor in (WechatExtractor(), SocialExtractor()):
+    for extractor in (WechatExtractor(), PodcastExtractor(), SocialExtractor()):
         if extractor.can_handle(url):
             return extractor
     return WebExtractor()
@@ -184,6 +208,16 @@ def fetch(
     """完整的抓取流程。无论发生什么都返回合法结果字典，不抛异常。"""
     deadline = time.monotonic() + budget
     try:
+        local_media = detect_local_media(raw_input)
+        if local_media is not None:
+            return VideoExtractor("local").extract_local(
+                local_media,
+                frames=frames,
+                allow_long=allow_long,
+                start_sec=start_sec,
+                end_sec=end_sec,
+            )
+
         url = normalize(raw_input, deadline)
         if not url:
             return make_result(

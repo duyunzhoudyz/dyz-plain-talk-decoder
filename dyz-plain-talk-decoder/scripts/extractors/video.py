@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -36,12 +37,19 @@ VIDEO_HOSTS = {
     "youtu.be": "youtube",
     "douyin.com": "douyin",
     "iesdouyin.com": "douyin",
-    "channels.weixin.qq.com": "web",  # 视频号：PRD 5.1 枚举未单列，如实用 web
+    "channels.weixin.qq.com": "wechat_channels",  # 视频号
 }
+
+# 本地音视频文件扩展名（直接走 L2/L3，不经过 yt-dlp 下载）
+LOCAL_AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac", ".wma"}
+LOCAL_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".flv"}
+LOCAL_MEDIA_EXTS = LOCAL_AUDIO_EXTS | LOCAL_VIDEO_EXTS
 
 # L0 + L1 的时间预算。目标是 10 秒内完成，但慢网络下元数据本身可能就要几秒，
 # 预算太紧会把“有字幕”误判成失败，所以放宽到与图文一致的 20 秒
 L01_BUDGET = 20
+# 逐字稿与关键帧索引自写入起有效 24 小时；读取不续期，过期只当未命中，不删除文件。
+CACHE_TTL_SEC = 24 * 60 * 60
 # 时长闸门（秒）：超过 30 分钟需用户同意；超过 120 分钟默认不转写
 LONG_GATE_SEC = 30 * 60
 HARD_GATE_SEC = 120 * 60
@@ -86,9 +94,40 @@ def cache_root() -> Path:
 
 def cache_dir_for(url: str, start_sec: Optional[float] = None, end_sec: Optional[float] = None) -> Path:
     """同一链接（同一时间段）一个缓存目录，按链接哈希命名。"""
-    key = url + f"|{start_sec}|{end_sec}"
+    start = float(start_sec) if start_sec is not None else None
+    end = float(end_sec) if end_sec is not None else None
+    key = url + f"|{start}|{end}"
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
     return cache_root() / digest
+
+
+def _read_cached_json(path: Path) -> Any:
+    try:
+        with path.open(encoding="utf-8") as fh:
+            # 同一打开句柄上检查时间并读取，不能错用另一个进程刚替换进来的文件时间。
+            if not 0 <= time.time() - os.fstat(fh.fileno()).st_mtime <= CACHE_TTL_SEC:
+                return None
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _transcript_digest(record: dict[str, Any]) -> str:
+    payload = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("ascii")).hexdigest()
+
+
+def _frame_digest(path: Path) -> str:
+    """核对 JPEG 边界与内容；不把半张图、同名替换或残缺写入当成原帧。"""
+    try:
+        # 输出的长边至多 1024，远小于这个上限；损坏的缓存不能耗尽内存。
+        with path.open("rb") as fh:
+            data = fh.read(8 * 1024 * 1024 + 1)
+    except OSError:
+        return ""
+    if len(data) > 8 * 1024 * 1024 or not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9"):
+        return ""
+    return hashlib.sha256(data).hexdigest()
 
 
 # ------------------------------------------------------------ 时间解析与格式化
@@ -385,7 +424,7 @@ def _upload_date(info: dict[str, Any]) -> str:
 
 
 class VideoExtractor:
-    """视频省流漏斗。platform 由路由方传入（bilibili / youtube / douyin / web）。"""
+    """视频省流漏斗。platform 由路由方传入（bilibili / youtube / douyin / wechat_channels / web）。"""
 
     def __init__(self, platform: str = "web") -> None:
         self.platform = platform
@@ -411,11 +450,14 @@ class VideoExtractor:
         cache_dir = cache_dir_for(url, start_sec, end_sec)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # --frames 的二次调用：优先复用缓存的逐字稿，不重复下载音频
-        if frames:
-            cached = self._load_transcript(cache_dir)
-            if cached:
-                return self._l3_frames(url, cache_dir, cached, start_sec, end_sec)
+        # 普通追问与抽帧共用同一份带完整性记录的逐字稿，不再付费转写。
+        cached = self._load_transcript(cache_dir, url, start_sec, end_sec)
+        if cached is not None:
+            return self._l3_frames(url, cache_dir, cached, start_sec, end_sec) if frames else cached
+
+        def finish_transcript(result: dict[str, Any]) -> dict[str, Any]:
+            self._save_transcript(cache_dir, url, start_sec, end_sec, result)
+            return self._l3_frames(url, cache_dir, result, start_sec, end_sec) if frames else result
 
         # L0 元数据
         info, error = self._l0_metadata(url, cache_dir, deadline)
@@ -427,20 +469,13 @@ class VideoExtractor:
         title = str(info.get("title") or "")
         author = str(info.get("uploader") or info.get("channel") or "")
         publish_date = _upload_date(info)
-        meta = {
-            "title": title,
-            "author": author,
-            "publish_date": publish_date,
-            "duration_sec": duration,
-            "url": info.get("webpage_url") or url,
-        }
 
         def video_result(status: str, **kw: Any) -> dict[str, Any]:
             return make_result(
                 status,
                 source_type="video",
                 platform=self.platform,
-                url=meta["url"],
+                url=info.get("webpage_url") or url,
                 title=title,
                 author=author,
                 publish_date=publish_date,
@@ -450,16 +485,16 @@ class VideoExtractor:
 
         # L1 原生字幕
         segments, subtitle_note = self._l1_subtitles(info, cache_dir, deadline)
+        if segments and (start_sec is not None or end_sec is not None):
+            # 字幕是整条轨道：只保留与请求区间相交的字幕句，沿用原句时间戳。
+            segments = [s for s in segments if (end_sec is None or s.start < end_sec)
+                        and (start_sec is None or s.start >= start_sec or s.end > start_sec)]
+            if not segments:
+                subtitle_note = "指定时间段内没有字幕"
         if segments:
-            transcript = format_transcript(segments)
-            self._save_transcript(cache_dir, meta, transcript, "subtitle", "L1")
-            if frames:
-                return self._l3_frames(
-                    url, cache_dir, self._load_transcript(cache_dir) or {}, start_sec, end_sec
-                )
-            return video_result(
-                "success", content_text=transcript, extraction_method="subtitle", funnel_level="L1"
-            )
+            return finish_transcript(video_result(
+                "success", content_text=format_transcript(segments), extraction_method="subtitle", funnel_level="L1"
+            ))
 
         # L2 音频 + ASR
         provider = os.environ.get("ASR_PROVIDER", "").strip()
@@ -474,7 +509,7 @@ class VideoExtractor:
                 user_hint=(
                     "这个视频没有可用字幕" + (f"（{subtitle_note}）" if subtitle_note else "") + "。"
                     "要听写内容需要配置语音转文字（ASR）：设置环境变量 ASR_PROVIDER 等，方法见 README；"
-                    "也可以直接把字幕或文字稿贴给我。我不会只凭标题和简介下结论。"
+                    "也可以贴字幕或文字稿；如果关键信息在画面里，请发关键画面的截图。我不会只凭标题和简介下结论。"
                 ),
             )
 
@@ -490,24 +525,177 @@ class VideoExtractor:
                 user_hint=message,
             )
 
-        transcript, l2_error, l2_partial = self._l2_transcribe(url, cache_dir, meta, start_sec, end_sec)
-        if l2_error:
-            reason, hint = l2_error
+        transcript, error = self._l2_transcribe(url, cache_dir, start_sec, end_sec)
+        reason, hint = error or ("", "")
+        if not transcript:
             return video_result(
-                "partial", content_text=transcript, funnel_level="L2" if transcript else "L0",
-                extraction_method="asr" if transcript else "",
-                error_reason=reason, user_hint=hint,
+                "partial", funnel_level="L0", error_reason=reason,
+                user_hint=hint + " 若关键信息在画面里，请发关键画面的截图。",
             )
-        self._save_transcript(cache_dir, meta, transcript, "asr", "L2")
+        return finish_transcript(video_result(
+            "partial" if error else "success", content_text=transcript, extraction_method="asr", funnel_level="L2",
+            error_reason=reason, user_hint=hint,
+        ))
+
+    def extract_local(
+        self,
+        media_path: Path,
+        *,
+        frames: bool = False,
+        allow_long: bool = False,
+        start_sec: Optional[float] = None,
+        end_sec: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """本地音视频文件直传：绕过 yt-dlp，直接走时长闸门 + ffmpeg 转码 + ASR（视频按需 L3 抽帧）。"""
+        resolved = media_path.resolve()
+        if not resolved.is_file():
+            return failed_result(
+                "local", str(media_path), "not_found", source_type="video",
+                user_hint="找不到这个本地音视频文件，请检查路径是否正确。",
+            )
+        ext = resolved.suffix.lower()
+        is_video = ext in LOCAL_VIDEO_EXTS
+        stat = resolved.stat()
+        cache_key = f"local:{resolved}@{stat.st_mtime_ns}:{stat.st_size}"
+        cache_dir = cache_dir_for(cache_key, start_sec, end_sec)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        cached = self._load_transcript(cache_dir, cache_key, start_sec, end_sec)
+        if cached is not None:
+            if frames:
+                return self._l3_local_frames(resolved, is_video, cache_dir, cached, start_sec, end_sec)
+            return cached
+
+        import asr  # 延迟导入
+
+        duration = asr.probe_duration(resolved) or 0.0
+
+        def local_result(status: str, **kw: Any) -> dict[str, Any]:
+            return make_result(
+                status,
+                source_type="video",
+                platform="local",
+                url=str(resolved),
+                title=resolved.stem,
+                duration_sec=duration or None,
+                **kw,
+            )
+
+        provider = os.environ.get("ASR_PROVIDER", "").strip()
+        if provider not in ("openai_compatible", "local_whisper"):
+            return local_result(
+                "partial",
+                content_text="",
+                extraction_method="",
+                funnel_level="L0",
+                error_reason="asr_not_configured",
+                user_hint=(
+                    "本地音视频需要配置语音转文字（ASR）才能转写：请设置环境变量 ASR_PROVIDER 等（方法见 README）；"
+                    "也可以直接把文字稿贴给我。"
+                ),
+            )
+
+        if not shutil.which("ffmpeg"):
+            return local_result(
+                "partial",
+                content_text="",
+                extraction_method="",
+                funnel_level="L0",
+                error_reason="missing_dependency",
+                user_hint="转写本地音视频需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。",
+            )
+
+        action, message = gate_decision(
+            duration, allow_long=allow_long, start_sec=start_sec, end_sec=end_sec, provider=provider
+        )
+        if action != "proceed":
+            return local_result(
+                "partial",
+                content_text="",
+                funnel_level="L0",
+                needs_confirmation=message,
+                user_hint=message,
+            )
+
+        wav = cache_dir / "audio_16k.wav"
+        if not wav.exists():
+            cmd = ["ffmpeg", "-y"]
+            if start_sec is not None:
+                cmd += ["-ss", f"{start_sec:.2f}"]
+            if end_sec is not None:
+                cmd += ["-to", f"{end_sec:.2f}"]
+            cmd += ["-i", str(resolved), "-vn", "-ac", "1", "-ar", "16000", str(wav)]
+            ok, err = _run(cmd, timeout=300)
+            if not ok:
+                log(f"[local L2] ffmpeg 转码失败：{err[-300:]}")
+                return local_result(
+                    "partial",
+                    funnel_level="L0",
+                    error_reason="missing_dependency",
+                    user_hint="音频转码失败，请确认文件未损坏且 ffmpeg 安装完整。",
+                )
+
+        tr = asr.transcribe_file(wav, offset_sec=start_sec or 0.0)
+        if not tr.get("ok"):
+            return local_result(
+                "partial",
+                funnel_level="L0",
+                error_reason=tr.get("error_reason") or "network",
+                user_hint=(tr.get("user_hint") or USER_HINTS["network"]) + " 也可以直接贴文字稿。",
+            )
+        segments = [Segment(start, end, text) for start, end, text in tr["segments"]]
+        transcript = format_transcript(segments)
+        if not transcript:
+            return local_result(
+                "partial",
+                funnel_level="L0",
+                error_reason="not_found",
+                user_hint="转写没有得到文字，这个文件可能没有人声；若是无声录屏，请直接发关键画面截图。",
+            )
+
+        is_partial = bool(tr.get("partial"))
+        reason = (tr.get("error_reason") or "network") if is_partial else ""
+        hint = (tr.get("user_hint") or "只转写了文件的一部分。") if is_partial else ""
+        result = local_result(
+            "partial" if is_partial else "success",
+            content_text=transcript,
+            extraction_method="asr",
+            funnel_level="L2",
+            error_reason=reason,
+            user_hint=hint,
+        )
+        self._save_transcript(cache_dir, cache_key, start_sec, end_sec, result)
         if frames:
-            return self._l3_frames(url, cache_dir, self._load_transcript(cache_dir) or {}, start_sec, end_sec)
-        if l2_partial:
-            return video_result(
-                "partial", content_text=transcript, extraction_method="asr", funnel_level="L2",
-                error_reason="network",
-                user_hint="只转写了视频的一部分，后面的内容没拿到，结论可能不完整。可以指定时间段重试，或把字幕/文字稿贴给我。",
+            return self._l3_local_frames(resolved, is_video, cache_dir, result, start_sec, end_sec)
+        return result
+
+    def _l3_local_frames(
+        self,
+        media_path: Path,
+        is_video: bool,
+        cache_dir: Path,
+        cached: dict[str, Any],
+        start_sec: Optional[float],
+        end_sec: Optional[float],
+    ) -> dict[str, Any]:
+        """本地视频文件按需抽帧（纯音频文件直接保留逐字稿并说明无画面）。"""
+        if not is_video:
+            note = "这是纯音频文件，没有画面可抽帧；已返回完整文字转写。"
+            return dict(cached, user_hint=" ".join(filter(None, (cached["user_hint"], note))))
+        if not cached.get("content_text"):
+            return failed_result(
+                "local", str(media_path), "not_found", source_type="video",
+                user_hint="没有可用逐字稿，无法解读全片。请提供关键画面的截图或文字稿。",
             )
-        return video_result("success", content_text=transcript, extraction_method="asr", funnel_level="L2")
+        if not shutil.which("ffmpeg"):
+            return dict(
+                cached,
+                status="partial",
+                funnel_level="L3",
+                error_reason=cached["error_reason"] or "missing_dependency",
+                user_hint=" ".join(filter(None, (cached["user_hint"], "抽帧需要 ffmpeg，逐字稿已拿到，可先用文字部分。"))),
+            )
+        return self._run_l3_on_file(media_path, cache_dir, cached, start_sec, end_sec)
 
     # -------------------------------------------------- L0
 
@@ -557,7 +745,10 @@ class VideoExtractor:
         if not ok:
             log(f"[L1] 字幕质量不合格：{reason}")
             return [], reason
-        (cache_dir / "subtitle_raw.txt").write_text(fetched.text, encoding="utf-8")
+        try:
+            (cache_dir / "subtitle_raw.txt").write_text(fetched.text, encoding="utf-8")
+        except OSError as exc:
+            log(f"[L1] 原始字幕未能写入缓存：{type(exc).__name__}")
         log(f"[L1] 字幕合格：{len(segments)} 段，语言={track['lang']}，自动={track['auto'] or '否'}")
         return segments, ""
 
@@ -567,17 +758,16 @@ class VideoExtractor:
         self,
         url: str,
         cache_dir: Path,
-        meta: dict[str, Any],
         start_sec: Optional[float],
         end_sec: Optional[float],
-    ) -> tuple[str, Optional[tuple[str, str]], bool]:
-        """下载最低码率音频 -> 16kHz 单声道 -> ASR。返回 (逐字稿, 错误, 是否只转写了一部分)。"""
+    ) -> tuple[str, Optional[tuple[str, str]]]:
+        """下载最低码率音频并转写。非空逐字稿与错误并存时表示部分转写。"""
         try:
             import yt_dlp  # 延迟导入
         except ImportError:
-            return "", ("missing_dependency", "读取视频需要 yt-dlp。运行：pip install yt-dlp。"), False
+            return "", ("missing_dependency", "读取视频需要 yt-dlp。运行：pip install yt-dlp。")
         if not shutil.which("ffmpeg"):
-            return "", ("missing_dependency", "语音转写需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。"), False
+            return "", ("missing_dependency", "语音转写需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。")
 
         # 只下载音频流，选最低码率；已有缓存则复用
         audio_files = sorted(cache_dir.glob("audio_raw.*"))
@@ -601,10 +791,10 @@ class VideoExtractor:
                     ydl.download([url])
             except Exception as exc:
                 log(f"[L2] 音频下载失败：{str(exc)[:300]}")
-                return "", _classify_ytdlp_error(str(exc)), False
+                return "", _classify_ytdlp_error(str(exc))
             audio_files = sorted(cache_dir.glob("audio_raw.*"))
             if not audio_files:
-                return "", ("network", "音频下载没有产出文件。可以升级 yt-dlp 再试，或把字幕/文字稿贴给我。"), False
+                return "", ("network", "音频下载没有产出文件。可以升级 yt-dlp 再试，或把字幕/文字稿贴给我。")
         log(f"[L2] 音频文件：{audio_files[0].name}，{audio_files[0].stat().st_size / 1024:.0f} KB")
 
         wav = cache_dir / "audio_16k.wav"
@@ -615,18 +805,21 @@ class VideoExtractor:
             )
             if not ok:
                 log(f"[L2] ffmpeg 转码失败：{err[-300:]}")
-                return "", ("missing_dependency", "音频转码失败，请确认 ffmpeg 安装完整（winget install ffmpeg / brew install ffmpeg）。"), False
+                return "", ("missing_dependency", "音频转码失败，请确认 ffmpeg 安装完整（winget install ffmpeg / brew install ffmpeg）。")
 
         import asr  # 延迟导入：asr 只在 L2 用到（scripts 目录已在搜索路径里）
 
         result = asr.transcribe_file(wav, offset_sec=start_sec or 0.0)
         if not result.get("ok"):
-            return "", (result.get("error_reason") or "network", result.get("user_hint") or USER_HINTS["network"]), False
+            return "", (result.get("error_reason") or "network", result.get("user_hint") or USER_HINTS["network"])
         segments = [Segment(start, end, text) for start, end, text in result["segments"]]
         transcript = format_transcript(segments)
-        if not transcript.strip():
-            return "", ("anti_scrape", "转写结果是空的，这个视频可能没有人声。可以截几张关键画面发给我。"), False
-        return transcript, None, bool(result.get("partial"))
+        if result.get("partial"):
+            return transcript, (result.get("error_reason") or "network", result.get("user_hint") or
+                                "只转写了视频的一部分，后面的内容没拿到。可以指定其他时间段，或把文字稿贴给我。")
+        if not transcript:
+            return "", ("not_found", "转写没有得到文字，这个视频可能没有人声。")
+        return transcript, None
 
     # -------------------------------------------------- L3
 
@@ -639,50 +832,44 @@ class VideoExtractor:
         end_sec: Optional[float],
     ) -> dict[str, Any]:
         """下载够用的最低分辨率视频，场景检测抽关键帧。复用缓存的逐字稿。"""
-        transcript = str(cached.get("content_text") or "")
-        method = str(cached.get("extraction_method") or "subtitle")
-        duration = float(cached.get("duration_sec") or 0)
+        if not cached.get("content_text"):
+            return failed_result(self.platform, url, "not_found", source_type="video",
+                                 user_hint="没有可用逐字稿，无法解读全片。请提供关键画面的截图或文字稿。")
 
-        def frame_result(status: str, keyframes: list[str], **kw: Any) -> dict[str, Any]:
-            return make_result(
-                status,
-                source_type="video",
-                platform=self.platform,
-                url=str(cached.get("url") or url),
-                title=str(cached.get("title") or ""),
-                author=str(cached.get("author") or ""),
-                publish_date=str(cached.get("publish_date") or ""),
-                content_text=transcript,
-                extraction_method="asr+frames" if method == "asr" else method,
-                keyframes=keyframes,
-                duration_sec=duration or None,
-                funnel_level="L3",
-                **kw,
-            )
+        def frame_result(keyframes: list[str], error_reason: str = "", user_hint: str = "") -> dict[str, Any]:
+            # 帧是补充证据：既不能补齐缺失的语音，也不能抹掉原来的失败原因。
+            method = cached["extraction_method"]
+            return dict(cached, keyframes=keyframes, funnel_level="L3",
+                        status="partial" if error_reason else cached["status"],
+                        extraction_method="asr+frames" if keyframes and method == "asr" else method,
+                        error_reason=cached["error_reason"] or error_reason,
+                        user_hint=" ".join(filter(None, (cached["user_hint"], user_hint))))
 
-        if not transcript:
-            return frame_result(
-                "failed", [], error_reason="not_found",
-                user_hint="缓存里没有这个视频的逐字稿。请先不带 --frames 调用一次，或把字幕/文字稿贴给我。",
-            )
+        frames_dir = cache_dir / "frames"
+        index_path = frames_dir / "index.json"
+        index = _read_cached_json(index_path)
+        if isinstance(index, dict) and 0 < len(index) <= FRAME_MAX_COUNT and all(
+            re.fullmatch(r"frame_\d{5,}s\.jpg", name) and digest and digest == _frame_digest(frames_dir / name)
+            for name, digest in index.items()
+        ):
+            log(f"[L3] 复用缓存关键帧 {len(index)} 张")
+            return frame_result([str(frames_dir / name) for name in index])
         if not shutil.which("ffmpeg"):
             return frame_result(
-                "partial", [], error_reason="missing_dependency",
+                [], error_reason="missing_dependency",
                 user_hint="抽帧需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。逐字稿已拿到，可以先用文字部分。",
             )
         try:
             import yt_dlp  # 延迟导入
         except ImportError:
             return frame_result(
-                "partial", [], error_reason="missing_dependency",
+                [], error_reason="missing_dependency",
                 user_hint="抽帧需要 yt-dlp（pip install yt-dlp）。逐字稿已拿到，可以先用文字部分。",
             )
 
-        frames_dir = cache_dir / "frames"
-        existing = sorted(frames_dir.glob("frame_*.jpg")) if frames_dir.exists() else []
-        if existing:
-            log(f"[L3] 复用缓存关键帧 {len(existing)} 张")
-            return frame_result("success", [str(p) for p in existing])
+        full_duration = cached["duration_sec"] or 0
+        end = end_sec if end_sec is not None else full_duration
+        duration = max(0, (min(end, full_duration) if full_duration else end) - (start_sec or 0))
 
         video_files = sorted(cache_dir.glob("video_src.*"))
         if not video_files:
@@ -706,76 +893,117 @@ class VideoExtractor:
             except Exception as exc:
                 log(f"[L3] 视频下载失败：{str(exc)[:300]}")
                 reason, hint = _classify_ytdlp_error(str(exc))
-                return frame_result("partial", [], error_reason=reason, user_hint=hint)
+                return frame_result([], error_reason=reason, user_hint=hint)
             video_files = sorted(cache_dir.glob("video_src.*"))
             if not video_files:
                 return frame_result(
-                    "partial", [], error_reason="network",
+                    [], error_reason="network",
                     user_hint="视频画面下载失败。逐字稿已拿到，可以先用文字部分，或截几张关键画面发给我。",
                 )
         video_path = video_files[0]
         log(f"[L3] 视频文件：{video_path.name}，{video_path.stat().st_size / 1024 / 1024:.1f} MB")
+        return self._run_l3_on_file(video_path, cache_dir, cached, start_sec, end_sec)
 
-        frames_dir.mkdir(parents=True, exist_ok=True)
+    def _run_l3_on_file(
+        self,
+        video_path: Path,
+        cache_dir: Path,
+        cached: dict[str, Any],
+        start_sec: Optional[float],
+        end_sec: Optional[float],
+    ) -> dict[str, Any]:
+        """对已有本地视频文件执行场景/软切抽帧并写入带完整性校验的索引。"""
+        def frame_result(keyframes: list[str], error_reason: str = "", user_hint: str = "") -> dict[str, Any]:
+            method = cached["extraction_method"]
+            return dict(
+                cached,
+                keyframes=keyframes,
+                funnel_level="L3",
+                status="partial" if error_reason else cached["status"],
+                extraction_method="asr+frames" if keyframes and method == "asr" else method,
+                error_reason=cached["error_reason"] or error_reason,
+                user_hint=" ".join(filter(None, (cached["user_hint"], user_hint))),
+            )
+
+        frames_dir = cache_dir / "frames"
+        index_path = frames_dir / "index.json"
+        index = _read_cached_json(index_path)
+        if isinstance(index, dict) and 0 < len(index) <= FRAME_MAX_COUNT and all(
+            re.fullmatch(r"frame_\d{5,}s\.jpg", name) and digest and digest == _frame_digest(frames_dir / name)
+            for name, digest in index.items()
+        ):
+            log(f"[L3] 复用缓存关键帧 {len(index)} 张")
+            return frame_result([str(frames_dir / name) for name in index])
+
+        full_duration = cached["duration_sec"] or 0
+        end = end_sec if end_sec is not None else full_duration
+        duration = max(0, (min(end, full_duration) if full_duration else end) - (start_sec or 0))
+
+        try:
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            # 同一请求可能并发或在 ffmpeg 中断后重试；只接收本次私有目录里的输出。
+            with tempfile.TemporaryDirectory(dir=frames_dir) as tmp:
+                work = Path(tmp)
+                kept = self._scene_frames(video_path, work, duration)
+                if not kept:
+                    log("[L3] 没有可定位的场景帧，改用均匀间隔兜底")
+                    kept = self._fallback_frames(video_path, work, duration, start_sec)
+                if not kept:
+                    return frame_result([], "missing_dependency", "抽帧没有成功，请确认 ffmpeg 安装完整。逐字稿已拿到，可以先用文字部分。")
+
+                index = {}
+                for path, t in kept:
+                    digest = _frame_digest(path)
+                    if not digest:
+                        return frame_result([], "network", "关键帧文件不完整。请提供关键画面的截图，或先用已取得的文字。")
+                    name = f"frame_{round((start_sec or 0.0) + t):05d}s.jpg"
+                    path.replace(frames_dir / name)
+                    index[name] = digest
+                # 先发布完整图片，最后一次替换索引；读者不会看到半写的 JSON。
+                staged = work / "index.json"
+                staged.write_text(json.dumps(index), encoding="utf-8")
+                staged.replace(index_path)
+        except OSError as exc:
+            log(f"[L3] 关键帧未能保存：{type(exc).__name__}")
+            return frame_result([], "network", "关键帧未能完整保存。可以先用已取得的文字，或提供关键画面的截图。")
+        log(f"[L3] 关键帧 {len(index)} 张")
+        return frame_result([str(frames_dir / name) for name in index])
+
+    def _scene_frames(self, video_path: Path, work: Path, duration: float) -> list[tuple[Path, float]]:
+        """只接受本轮有时间依据的硬切帧；不可定位时尝试按软切换时间重新取帧。"""
         scale = f"scale=w='min(iw,{FRAME_LONG_SIDE})':h='min(ih,{FRAME_LONG_SIDE})':force_original_aspect_ratio=decrease"
         ok, err = _run(
             [
                 "ffmpeg", "-y", "-i", str(video_path),
                 "-vf", f"select='gt(scene,{SCENE_THRESHOLD})',showinfo,{scale}",
                 "-fps_mode", "vfr", "-q:v", "5",
-                str(frames_dir / "scene_%04d.jpg"),
+                str(work / "scene_%04d.jpg"),
             ],
             timeout=600,
         )
-        times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)", err)]
-        scenes = sorted(frames_dir.glob("scene_*.jpg"))
-        if not scenes:
-            # 硬切一帧都没有：可能是幻灯片软换页（分数低但换完静止），
-            # 也可能是单镜头持续运动或纯静止。先按“变化后静止”补抽软切换帧。
-            soft_times = _soft_scene_times(_scan_scene_scores(video_path), duration)
-            candidates = _select_frames(
-                [(frames_dir / f"scene_{i + 1:04d}.jpg", t) for i, t in enumerate(soft_times)],
-                duration,
-            )
-            for path, t in candidates:
-                ok, _ = _run(
-                    ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(video_path),
-                     "-frames:v", "1", "-vf", scale, "-q:v", "5", str(path)],
-                    timeout=60,
-                )
-                if ok and path.exists():
-                    scenes.append(path)
-                    times.append(t)
-            if scenes:
-                log(f"[L3] 无硬切场景，按软切换（换页后静止）抽到 {len(scenes)} 帧")
-            else:
-                # 软切换也没有：画面几乎静止或持续运动，均匀间隔兜底；兜底也没有才如实报错。
-                log("[L3] 场景检测没有抽到帧，改用均匀间隔兜底")
+        if ok:
+            try:
+                times = [float(t) for t in re.findall(r"\bpts_time:(\S+)", err)]
+            except ValueError:  # showinfo 也可能报告 N/A；不能猜它是哪一秒。
+                times = []
+            files = set(work.glob("scene_*.jpg"))
+            pairs = [(work / f"scene_{i:04d}.jpg", t) for i, t in enumerate(times, 1)]
+            if pairs and len(files) == len(pairs) and all(p in files and math.isfinite(t) and t >= 0 for p, t in pairs):
+                return _select_frames(pairs, duration)
 
-        # 场景帧与时间戳一一对应；数量对不上时按均匀间隔兜底
-        pairs = list(zip(scenes, times)) if len(scenes) == len(times) else [(p, -1.0) for p in scenes]
-        kept = _select_frames(pairs, duration)
-        if not kept:
-            kept = self._fallback_frames(video_path, frames_dir, duration, start_sec)
-        if not kept:
-            log(f"[L3] 兜底抽帧也没有产出：{err[-300:]}")
-            return frame_result(
-                "partial", [], error_reason="missing_dependency",
-                user_hint="抽帧没有成功，请确认 ffmpeg 安装完整。逐字稿已拿到，可以先用文字部分。",
+        # 硬切失败时可能留下本轮的残帧，定点重抽要用另一个输出名。
+        times = _soft_scene_times(_scan_scene_scores(video_path), duration)
+        candidates = [(work / f"soft_{i:04d}.jpg", t) for i, t in enumerate(times)]
+        kept = []
+        for path, t in _select_frames(candidates, duration):
+            ok, _ = _run(
+                ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(video_path),
+                 "-frames:v", "1", "-vf", scale, "-q:v", "5", str(path)],
+                timeout=60,
             )
-        # 删掉未选中的场景帧，只保留最终关键帧
-        kept_paths = {p for p, _ in kept}
-        for p in scenes:
-            if p not in kept_paths:
-                p.unlink(missing_ok=True)
-        final: list[str] = []
-        for path, t in kept:
-            offset = (start_sec or 0.0) + (t if t >= 0 else 0.0)
-            target = frames_dir / f"frame_{int(round(offset)):05d}s.jpg"
-            path.rename(target)
-            final.append(str(target))
-        log(f"[L3] 关键帧 {len(final)} 张")
-        return frame_result("success", final)
+            if ok and path.is_file():
+                kept.append((path, t))
+        return kept
 
     def _fallback_frames(
         self, video_path: Path, frames_dir: Path, duration: float, start_sec: Optional[float]
@@ -799,22 +1027,55 @@ class VideoExtractor:
 
     # -------------------------------------------------- 逐字稿缓存
 
-    def _save_transcript(
-        self, cache_dir: Path, meta: dict[str, Any], transcript: str, method: str, level: str
-    ) -> None:
-        data = dict(meta)
-        data.update({"content_text": transcript, "extraction_method": method, "funnel_level": level})
-        (cache_dir / "transcript.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-
-    def _load_transcript(self, cache_dir: Path) -> Optional[dict[str, Any]]:
-        path = cache_dir / "transcript.json"
-        if not path.exists():
-            return None
+    def _save_transcript(self, cache_dir: Path, url: str, start: Optional[float], end: Optional[float],
+                         result: dict[str, Any]) -> None:
+        # 请求 URL 可能与元数据中的平台规范 URL 不同；两者不能互相替代。
+        data = {"request": [url, start, end], "result": result, "saved_at": time.time()}
+        data["sha256"] = _transcript_digest(data)
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (ValueError, OSError):
+            # 临时文件与目标同卷；写入/关闭成功后才替换，锁冲突或磁盘满不动旧记录。
+            with tempfile.TemporaryDirectory(dir=cache_dir) as tmp:
+                staged = Path(tmp) / "transcript.json"
+                staged.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                staged.replace(cache_dir / "transcript.json")
+        except OSError as exc:
+            log(f"[缓存] 逐字稿未能写入，下次可能需要重新取材：{type(exc).__name__}")
+
+    def _load_transcript(self, cache_dir: Path, url: str, start: Optional[float], end: Optional[float]
+                         ) -> Optional[dict[str, Any]]:
+        data = _read_cached_json(cache_dir / "transcript.json")
+        if not isinstance(data, dict) or data.get("request") != [url, start, end]:
             return None
-        return data if data.get("content_text") else None
+        # 拷贝或重存不能给旧内容续期。旧格式没有摘要，不能证明正文未被改写。
+        saved_at = data.get("saved_at")
+        if type(saved_at) not in (int, float) or not time.time() - CACHE_TTL_SEC <= saved_at <= time.time():
+            return None
+        digest = data.pop("sha256", None)
+        if not isinstance(digest, str) or digest != _transcript_digest(data):
+            return None
+        # Python 中 False == 0，不能让 JSON 布尔值冒充请求的时间。
+        if any(t is not None and type(t) not in (float, int) for t in data["request"][1:]):
+            return None
+        r = data.get("result")
+        fields = make_result("success")
+        if not isinstance(r, dict) or r.keys() != fields.keys():
+            return None
+        if any(not isinstance(r[k], str) for k, v in fields.items() if isinstance(v, str)):
+            return None
+        if (r["source_type"] != "video" or r["platform"] != self.platform or not r["url"].strip()
+                or not r["content_text"].strip() or r["keyframes"] != [] or r["needs_confirmation"]):
+            return None
+        duration = r["duration_sec"]
+        if duration is not None and (type(duration) not in (float, int) or not 0 <= duration < math.inf):
+            return None
+        if (r["extraction_method"], r["funnel_level"]) not in (("asr", "L2"), ("subtitle", "L1")):
+            return None
+        if r["status"] == "success" and not r["error_reason"] and not r["user_hint"]:
+            return r
+        if (r["status"] == "partial" and r["extraction_method"] == "asr" and r["user_hint"].strip()
+                and r["error_reason"] in ("network", "anti_scrape", "login_wall", "missing_dependency", "not_found", "asr_not_configured")):
+            return r
+        return None
 
 
 def _scan_scene_scores(video_path: Path, timeout: float = 600) -> list[tuple[float, float]]:
@@ -871,8 +1132,7 @@ def _select_frames(pairs: list[tuple[Path, float]], duration: float) -> list[tup
     spaced: list[tuple[Path, float]] = []
     last_t = -float("inf")
     for path, t in pairs:
-        if t < 0:  # 没有时间信息时无法按间隔去重，全部保留交给上限处理
-            spaced.append((path, t))
+        if t < 0 or not math.isfinite(t):
             continue
         if t - last_t >= FRAME_MIN_GAP:
             spaced.append((path, t))

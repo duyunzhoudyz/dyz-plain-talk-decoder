@@ -21,6 +21,7 @@ sys.path.insert(0, str(SCRIPTS))
 import fetch_content as fc  # noqa: E402
 from extractors import base  # noqa: E402
 from extractors.base import Fetched  # noqa: E402
+from extractors.podcast import PodcastExtractor, parse_xiaoyuzhou_html  # noqa: E402
 from extractors.social import SocialExtractor, parse_social_html  # noqa: E402
 from extractors.web import WebExtractor, parse_web_html  # noqa: E402
 from extractors.wechat import WechatExtractor, parse_wechat_html  # noqa: E402
@@ -231,6 +232,7 @@ class TestRouting:
             ("https://m.weibo.cn/detail/1", SocialExtractor),
             ("https://x.com/u/status/1", SocialExtractor),
             ("https://www.xiaohongshu.com/explore/1", SocialExtractor),
+            ("https://www.xiaoyuzhoufm.com/episode/abc123", PodcastExtractor),
             ("https://example.com/news/1", WebExtractor),
             ("https://some-unknown-site.org/x", WebExtractor),
         ],
@@ -248,15 +250,17 @@ class TestRouting:
             ("https://www.youtube.com/watch?v=1", "youtube"),
             ("https://youtu.be/1", "youtube"),
             ("https://www.douyin.com/video/1", "douyin"),
+            ("https://channels.weixin.qq.com/s/1", "wechat_channels"),
         ],
     )
     def test_video_platforms_detected(self, url, platform):
         assert fc.video_platform_of(url) == platform
 
-    def test_video_link_missing_ytdlp_fails_honestly(self, monkeypatch):
+    def test_video_link_missing_ytdlp_fails_honestly(self, monkeypatch, tmp_path):
         # Phase 3：视频走漏斗；缺少 yt-dlp 时不联网、不脑补，诚实返回失败与指引
-        import sys
+        from extractors import video
 
+        monkeypatch.setattr(video, "cache_root", lambda: tmp_path)
         monkeypatch.setitem(sys.modules, "yt_dlp", None)  # 让 import yt_dlp 抛 ImportError
         r = fc.fetch("https://www.bilibili.com/video/BV1xx")
         assert_contract(r)
@@ -366,7 +370,7 @@ class TestFetchEndToEndOffline:
     def test_cli_outputs_single_utf8_json_with_exit_zero(self):
         """作为命令行运行：标准输出只有一份 JSON，中文不乱码，退出码 0。"""
         proc = subprocess.run(
-            [sys.executable, "-I", str(SCRIPTS / "fetch_content.py"), "只有文字没有链接"],
+            [sys.executable, "-I", "-B", str(SCRIPTS / "fetch_content.py"), "只有文字没有链接"],
             capture_output=True, timeout=30,
         )
         assert proc.returncode == 0
@@ -377,7 +381,7 @@ class TestFetchEndToEndOffline:
 
     def test_cli_without_arguments_still_outputs_json(self):
         proc = subprocess.run(
-            [sys.executable, "-I", str(SCRIPTS / "fetch_content.py")],
+            [sys.executable, "-I", "-B", str(SCRIPTS / "fetch_content.py")],
             capture_output=True, timeout=30,
         )
         assert proc.returncode == 0
@@ -387,13 +391,48 @@ class TestFetchEndToEndOffline:
 class TestCheckEnv:
     def test_runs_and_outputs_json(self):
         proc = subprocess.run(
-            [sys.executable, "-I", str(SCRIPTS / "check_env.py")],
+            [sys.executable, "-I", "-B", str(SCRIPTS / "check_env.py")],
             capture_output=True, timeout=60,
         )
         assert proc.returncode == 0
         data = json.loads(proc.stdout.decode("utf-8"))
         assert data["capabilities"]["paste_text"] is True
         assert "user_hint" in data
+
+    @pytest.mark.parametrize("provider,key,model,installed,expected", [
+        ("", "", "", {"openai", "faster_whisper"}, False),
+        ("invalid", "mock-only", "", {"openai"}, False),
+        ("openai_compatible", "  ", "", {"openai"}, False),
+        ("openai_compatible", "mock-only", "", {"faster_whisper"}, False),
+        ("openai_compatible", "mock-only", "", {"openai"}, True),
+        ("openai_compatible", "mock-only", "qwen3-asr-flash", set(), False),
+        ("openai_compatible", "mock-only", "qwen-audio-asr", set(), True),
+        ("local_whisper", "", "", {"openai"}, False),
+        ("local_whisper", "", "", {"faster_whisper"}, True),
+    ])
+    def test_transcription_preflight_matches_selected_backend(self, monkeypatch, provider, key, model, installed, expected):
+        import check_env
+
+        monkeypatch.setenv("ASR_PROVIDER", provider)
+        monkeypatch.setenv("ASR_API_KEY", key)
+        monkeypatch.setenv("ASR_MODEL", model)
+        available = {"requests", "bs4", "readability", "yt_dlp"} | installed
+        monkeypatch.setattr(check_env, "check_module", lambda name: "1.0" if name in available else None)
+        monkeypatch.setattr(check_env.shutil, "which", lambda name: name)
+        result = check_env.run_checks()
+        assert result["capabilities"]["video_transcribe"] is expected
+        assert "预检" in result["asr"]["check_scope"] and "未验证" in result["asr"]["check_scope"]
+        assert "mock-only" not in json.dumps(result)
+
+    def test_ffmpeg_alone_supports_generated_pcm_wav(self, monkeypatch):
+        import check_env
+
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(check_env, "check_module", lambda name: "1.0")
+        monkeypatch.setattr(check_env.shutil, "which", lambda name: name if name == "ffmpeg" else None)
+        report = check_env.run_checks()
+        assert report["capabilities"]["video_transcribe"] is True
+        assert "PCM WAV" in report["asr"]["check_scope"] and "ffprobe" in report["asr"]["check_scope"]
 
     def test_never_prints_secret(self, monkeypatch):
         sys.path.insert(0, str(SCRIPTS))
@@ -465,3 +504,62 @@ class TestVeryShortContent:
         r = parse_wechat_html(url, Fetched(final_url=url, status_code=200, text=html))
         assert r["status"] == "failed"
         assert r["content_text"] == ""
+
+    def test_short_complete_body_partial_hint_mentions_both_possibilities(self):
+        """低于 200 字但不算空页的短正文仍标 partial，并提示“可能原本就短”与“补贴全文”（D-01）。"""
+        url = "https://example.com/notice/1"
+        body = "本馆下月起调整周六开放时间，上午九点开馆，下午五点闭馆，其余日期和预约方式维持不变，请读者合理安排到馆时间。"
+        assert 40 <= len(body) < 200
+        html = f"<html><head><title>开放时间短通知</title></head><body><article><p>{body}</p></article></body></html>"
+        r = parse_web_html(url, Fetched(final_url=url, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "partial"
+        assert "原本就这么短" in r["user_hint"]
+        assert "粘贴" in r["user_hint"]
+
+
+class TestPodcastXiaoyuzhou:
+    URL = "https://www.xiaoyuzhoufm.com/episode/670000000000000000000001"
+
+    def test_next_data_episode_returns_partial_never_success(self):
+        """小宇宙 Shownotes 只是单集简介，即使字数很长也最多返回 partial，不冒充整期逐字稿。"""
+        payload = json.dumps({
+            "props": {
+                "pageProps": {
+                    "episode": {
+                        "title": "第 12 期：储能行业价格战复盘",
+                        "pubDate": "2026-10-15T08:00:00.000Z",
+                        "duration": 3420,
+                        "podcast": {"title": "产业观察周报"},
+                        "shownotes": "<p>本期嘉宾讨论了近两年储能电芯产能过剩与价格走势。" + "详细时间轴与议题说明。" * 30 + "</p>",
+                        "media": {"source": {"url": "https://media.xyzcdn.net/sample.m4a"}},
+                    }
+                }
+            }
+        }, ensure_ascii=False)
+        html = f'<html><head><title>x</title></head><body><script id="__NEXT_DATA__" type="application/json">{payload}</script></body></html>'
+        r = parse_xiaoyuzhou_html(self.URL, Fetched(final_url=self.URL, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "partial"
+        assert r["platform"] == "xiaoyuzhou"
+        assert r["title"] == "第 12 期：储能行业价格战复盘"
+        assert r["author"] == "产业观察周报"
+        assert r["publish_date"] == "2026-10-15"
+        assert r["duration_sec"] == 3420.0
+        assert "储能电芯" in r["content_text"]
+        assert "https://media.xyzcdn.net/sample.m4a" in r["user_hint"]
+        assert "不是整期播客的逐字稿" in r["user_hint"]
+
+    def test_login_page_fails_honestly(self):
+        html = "<html><body><p>请登录后查看该播客单集</p></body></html>"
+        r = parse_xiaoyuzhou_html(self.URL, Fetched(final_url=self.URL, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "failed"
+        assert r["error_reason"] == "login_wall"
+
+    def test_empty_page_fails_with_hint(self):
+        html = "<html><head><title>小宇宙</title></head><body><div></div></body></html>"
+        r = parse_xiaoyuzhou_html(self.URL, Fetched(final_url=self.URL, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "failed"
+        assert "本地音频" in r["user_hint"]

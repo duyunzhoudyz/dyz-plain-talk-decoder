@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -55,7 +57,13 @@ def get_provider() -> tuple[str, str]:
 
 
 def probe_duration(audio_path: Path) -> Optional[float]:
-    """用 ffprobe 读音频时长（秒）。读不到返回 None。"""
+    """按 PCM WAV 的帧数读取时长；其他格式用 ffprobe，读不到返回 None。"""
+    try:
+        with wave.open(str(audio_path), "rb") as wav:
+            if wav.getframerate() > 0:
+                return wav.getnframes() / wav.getframerate()
+    except (wave.Error, EOFError, OSError):
+        pass
     if not shutil.which("ffprobe"):
         return None
     try:
@@ -66,21 +74,43 @@ def probe_duration(audio_path: Path) -> Optional[float]:
             ],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
-        return float(proc.stdout.strip())
+        duration = float(proc.stdout.strip())
+        return duration if proc.returncode == 0 and math.isfinite(duration) and duration > 0 else None
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return None
 
 
-def slice_audio(audio_path: Path, work_dir: Path, slice_sec: int = SLICE_SEC) -> list[tuple[Path, float]]:
-    """把音频按固定时长切片。返回 [(切片文件, 偏移秒)]。
+class AudioSliceError(Exception):
+    """切片中断，只能使用 completed 中已由 ffmpeg 成功写完的前序片段。"""
 
-    时长读不到或不足一片时不切，整文件作为唯一一片（偏移 0）。
-    """
+    def __init__(self, hint: str, completed: list[tuple[Path, float]], *, reason: str = "network"):
+        super().__init__(hint)
+        self.completed = completed
+        # 对外契约没有独立的媒体处理错误码，运行失败沿用 ASR 的通用失败码；提示保留实际原因。
+        self.reason = reason
+
+
+def slice_audio(audio_path: Path, work_dir: Path, slice_sec: int = SLICE_SEC) -> list[tuple[Path, float]]:
+    """返回覆盖整段音频的 (切片文件, 偏移秒) 列表；不完整时抛出 AudioSliceError。"""
     duration = probe_duration(audio_path)
-    if duration is None or duration <= slice_sec:
+    if duration is None:
+        # 只有在文件不超过一片 16kHz、单声道、16 位 PCM 的字节预算时才整份转写。
+        try:
+            size = audio_path.stat().st_size
+        except FileNotFoundError as exc:
+            raise AudioSliceError("找不到待切片的音频文件，请检查文件是否存在。", [], reason="not_found") from exc
+        except OSError as exc:
+            raise AudioSliceError("无法读取待切片的音频文件，请检查文件是否可读。", []) from exc
+        if size > 16000 * 2 * slice_sec:
+            raise AudioSliceError(
+                "无法确定大文件的时长，未整份转写。请确认 ffprobe 可用，或转成 PCM WAV 后重试。", [],
+                reason="network" if shutil.which("ffprobe") else "missing_dependency",
+            )
+        return [(audio_path, 0.0)]
+    if duration <= slice_sec:
         return [(audio_path, 0.0)]
     slices: list[tuple[Path, float]] = []
-    count = int(duration // slice_sec) + (1 if duration % slice_sec > 1 else 0)
+    count = math.ceil(duration / slice_sec)
     for i in range(count):
         offset = i * slice_sec
         target = work_dir / f"slice_{i:03d}.wav"
@@ -92,12 +122,16 @@ def slice_audio(audio_path: Path, work_dir: Path, slice_sec: int = SLICE_SEC) ->
                 ],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
             )
-        except (subprocess.TimeoutExpired, OSError):
-            break
-        if proc.returncode != 0 or not target.exists():
-            break
+        except FileNotFoundError as exc:
+            raise AudioSliceError("找不到 ffmpeg，无法切片。请检查是否已安装并加入 PATH。", slices, reason="missing_dependency") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AudioSliceError(f"ffmpeg 在本段音频第 {offset} 秒处切片超时，请缩短时间段后重试。", slices) from exc
+        except OSError as exc:
+            raise AudioSliceError(f"无法运行 ffmpeg 在本段音频第 {offset} 秒处切片，请检查执行权限。", slices) from exc
+        if proc.returncode != 0 or not target.is_file():
+            raise AudioSliceError(f"ffmpeg 未能在本段音频第 {offset} 秒处生成切片，请检查音频或缩短时间段后重试。", slices)
         slices.append((target, offset))
-    return slices or [(audio_path, 0.0)]
+    return slices
 
 
 def merge_segments(parts: list[list[Any]], offsets: list[float]) -> list[Any]:
@@ -138,7 +172,7 @@ def _dashscope_dialect(base_url: str, model: str) -> bool:
     )
 
 
-def _native_dialect(model: str) -> bool:
+def is_native_dialect(model: str) -> bool:
     """是否为百炼原生协议 ASR（qwen-audio 系列）。
 
     该系列只支持原生 multimodal-generation 接口，送进 compatible-mode 恒 400，
@@ -171,7 +205,7 @@ def _transcribe_openai(slice_path: Path) -> list[tuple[float, float, str]]:
 
         size = slice_path.stat().st_size
         if size > 7_500_000:
-            # 编码后会超 10MB 上限；正常切片不会走到这里（ffprobe 缺失等例外）
+            # 编码后会超 10MB 上限；同时保护不经切片的单文件输入
             raise ValueError(f"audio too large for base64 limit: {size} bytes")
         mime = "audio/wav" if slice_path.suffix.lower() == ".wav" else "audio/mpeg"
         data_uri = f"data:{mime};base64,{base64.b64encode(slice_path.read_bytes()).decode()}"
@@ -304,7 +338,7 @@ def _transcribe_native(slice_path: Path) -> list[tuple[float, float, str]]:
 
     size = slice_path.stat().st_size
     if size > 7_500_000:
-        # 编码后会超 10MB 上限；正常切片不会走到这里（ffprobe 缺失等例外）
+        # 编码后会超 10MB 上限；同时保护不经切片的单文件输入
         raise ValueError(f"audio too large for base64 limit: {size} bytes")
     is_wav = slice_path.suffix.lower() == ".wav"
     mime = "audio/wav" if is_wav else "audio/mpeg"
@@ -334,8 +368,6 @@ def _load_wav_16k_mono(path: Path) -> Optional[Any]:
     的 decode_audio 不兼容（metadata_errors 参数报错）。读不了返回 None，
     由调用方退回传文件路径。
     """
-    import wave
-
     try:
         import numpy as np
     except ImportError:
@@ -429,7 +461,7 @@ def transcribe_file(
     slice_sec: int = SLICE_SEC,
     transcribe_slice: Optional[Callable[[Path], list[tuple[float, float, str]]]] = None,
 ) -> dict[str, Any]:
-    """转写一个音频文件，返回 {ok, segments, error_reason, user_hint}。
+    """转写一个音频文件；切片或转写中断时，仅在已有可用文字时返回 partial。
 
     segments 为 (start, end, text) 元组列表，时间戳已含 offset_sec 与切片偏移。
     `transcribe_slice` 仅供测试注入打桩的转写函数。
@@ -448,12 +480,12 @@ def transcribe_file(
     if transcribe_slice is None:
         if provider == "local_whisper":
             transcribe_slice = _transcribe_local
-        elif _native_dialect(os.environ.get("ASR_MODEL", "")):
+        elif is_native_dialect(os.environ.get("ASR_MODEL", "")):
             transcribe_slice = _transcribe_native
         else:
             transcribe_slice = _transcribe_openai
     if provider == "openai_compatible" and (
-        _native_dialect(os.environ.get("ASR_MODEL", ""))
+        is_native_dialect(os.environ.get("ASR_MODEL", ""))
         or _dashscope_dialect(os.environ.get("ASR_BASE_URL", ""), os.environ.get("ASR_MODEL", ""))
     ):
         # 百炼两种方言都走 Base64，上限 10MB：切片必须比标准方言更短
@@ -461,7 +493,12 @@ def transcribe_file(
 
     audio_path = Path(audio_path)
     with tempfile.TemporaryDirectory(prefix="ptd-asr-") as tmp:
-        slices = slice_audio(audio_path, Path(tmp), slice_sec)
+        reason = hint = ""
+        try:
+            slices = slice_audio(audio_path, Path(tmp), slice_sec)
+        except AudioSliceError as exc:
+            slices = exc.completed
+            reason, hint = exc.reason, str(exc)
         parts: list[list[Any]] = []
         offsets: list[float] = []
         for slice_path, slice_offset in slices:
@@ -469,17 +506,14 @@ def transcribe_file(
                 segments = transcribe_slice(slice_path)
             except Exception as exc:
                 reason, hint = _classify_asr_error(exc)
-                if parts:
-                    # 已转出一部分：如实返回部分结果，不冒充完整
-                    merged = merge_segments(parts, [o + offset_sec for o in offsets])
-                    return {
-                        "ok": True, "partial": True, "segments": merged,
-                        "error_reason": reason,
-                        "user_hint": f"只转写了前面一部分，后面失败了：{hint}",
-                    }
-                return {"ok": False, "segments": [], "error_reason": reason, "user_hint": hint}
+                break
             parts.append(segments)
             offsets.append(slice_offset)
             _log(f"[asr] 切片 {slice_offset:.0f}s 起：{len(segments)} 段")
     merged = merge_segments(parts, [o + offset_sec for o in offsets])
+    if reason:
+        return {
+            "ok": bool(merged), "partial": bool(merged), "segments": merged, "error_reason": reason,
+            "user_hint": f"只转写了前面一部分，后面失败了：{hint}" if merged else hint,
+        }
     return {"ok": True, "partial": False, "segments": merged, "error_reason": "", "user_hint": ""}

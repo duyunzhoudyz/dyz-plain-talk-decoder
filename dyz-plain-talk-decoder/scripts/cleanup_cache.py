@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """清理视频抓取的临时缓存（字幕、逐字稿、音频、关键帧）。
 
 用法：
