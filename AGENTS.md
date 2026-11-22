@@ -26,12 +26,16 @@
 ├── AGENTS.md / CLAUDE.md
 ├── docs/construction-plan.md
 ├── README.md / LICENSE          # 面向公众
+├── examples/                    # 公开解码样板间（不随 Skill 分发）
+├── .claude-plugin/              # Claude Code 插件与市场清单（不随独立 Skill 目录复制）
+├── .github/workflows/           # 跨平台离线 CI（Windows / macOS / Linux × Python 3.10–3.14）
+├── pytest.ini                   # 测试配置（与 tests/ 配套，不随 Skill 分发）
 ├── dyz-plain-talk-decoder/      # 可分发的 Skill 本体，用户只安装这个目录
 │   ├── SKILL.md
 │   ├── references/
 │   ├── scripts/
 │   └── requirements*.txt
-└── tests/                       # 测试与评测，不随 Skill 分发
+└── tests/                       # 测试、评测与配套文件，不随 Skill 分发
 ```
 
 - Skill 本体目录里只放运行时需要的文件。测试、需求文档、开发笔记一律放在它外面。
