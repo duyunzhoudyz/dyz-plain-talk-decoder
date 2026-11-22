@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>自查本仓库 README.md · 人话解码器</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --fg: #181c22;
+    --muted: #5c6573;
+    --border: #e3e7ee;
+    --accent: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --warn-bg: #fff7ed;
+    --warn-fg: #9a3412;
+    --warn-border: #fdba74;
+    --ok-bg: #ecfdf5;
+    --ok-fg: #065f46;
+    --unv-bg: #f3f4f6;
+    --unv-fg: #374151;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1318;
+      --card: #171c24;
+      --fg: #edf1f7;
+      --muted: #9aa4b2;
+      --border: #27303d;
+      --accent: #60a5fa;
+      --accent-soft: #172554;
+      --warn-bg: #2c1a0e;
+      --warn-fg: #fdba74;
+      --warn-border: #9a3412;
+      --ok-bg: #06281e;
+      --ok-fg: #6ee7b7;
+      --unv-bg: #232a35;
+      --unv-fg: #cbd5e1;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  .shell {
+    max-width: 760px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 28px 24px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05);
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+  .brand {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    line-height: 1.35;
+  }
+  .meta {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .card-section {
+    margin-bottom: 20px;
+  }
+  .card-section h2 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    color: var(--fg);
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
+  }
+  blockquote.lead {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--accent-soft);
+    border-radius: 10px;
+    font-weight: 500;
+  }
+  p { margin: 0 0 10px; }
+  ul, ol { margin: 0 0 10px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .item.caution {
+    border-left: 2px solid var(--warn-border);
+    padding-left: 10px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 999px;
+    vertical-align: 1px;
+  }
+  .badge-ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .badge-warn { background: var(--warn-bg); color: var(--warn-fg); }
+  .badge-unverified { background: var(--unv-bg); color: var(--unv-fg); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.9em;
+    background: var(--unv-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  a { color: var(--accent); word-break: break-all; }
+  body.filter-caution .card-section:not(.lead-section) .item[data-caution="false"] { display: none; }
+  body.filter-caution .card-section[data-has-caution="false"] { display: none; }
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+    margin-top: 24px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .shell { box-shadow: none; border: none; max-width: 100%; padding: 0; }
+    .toolbar { display: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand">人话解码器 · PLAIN-TALK DECODER</div>
+      <h1>自查本仓库 README.md</h1>
+      <div class="meta">生成日期：2026-11-22 · 来源：dyz-plain-talk-decoder/README.md · 标准版 · 平实直白 · 离线</div>
+      <div class="toolbar">
+        <button class="btn active" id="btnAll" type="button">看全文</button>
+        <button class="btn" id="btnCaution" type="button">只看存疑与避坑（3）</button>
+        <button class="btn" id="btnPrint" type="button">打印 / 存为 PDF</button>
+      </div>
+    </header>
+    <section class="card-section lead-section" data-has-caution="true">
+<h2>一句话讲人话</h2>
+<blockquote class="lead item" data-caution="false">这是开源技能“人话解码器”作者的自荐说明，想让你安装试用。它在同类项目里算很坦诚的，主动亮了半成品状态和一堆限制，但光看这份说明还判断不了实际解码好不好用。</blockquote>
+</section><section class="card-section" data-has-caution="true">
+<h2>事实与拆解</h2>
+<ul>
+<li class="item" data-caution="false"><strong>对方重点让你看的</strong>：MIT 开源，纯贴文字不装 Python 或密钥就能用，抓链接、字幕、转写和抽帧都是可选增强。真实亮点在于主动交代边界：开头自称“中文文本 Beta 候选版”，写清了平台分级、云端转写自费、本地画像须经同意落盘，以及医疗、投资、法律不替人做决定。</li>
+<li class="item caution" data-caution="true"><strong>对方没有提到或一笔带过的</strong>：一，全文只列了提问示例和功能表，没放任何一组“原文对输出”的直观样板（仅附仓库验收文档链接），外人看不出成色。二，“推荐”与实测进度有落差：安装区把 <code>uv</code> 标为推荐、将 B 站列为优先维护，后文却承认 <code>uv</code> 未真机跑过、macOS/Linux 实装与多宿主自动触发未验证，B 站公开软字幕仍缺实网成功样本。三，没说明主要在哪些大模型上测过，换模型后效果会差多少。</li>
+</ul>
+</section><section class="card-section" data-has-caution="true">
+<h2>核查与可信度</h2>
+<p class="item caution" data-caution="true">单机 Windows 跑通记录、YouTube 字幕两次耗时（6.5 秒与 16.5 秒）均属作者自述，未联网核查。材料自洽且敢写未验证项，算比较实在，但关键效果与适配信息仍缺位，综合可信度中等。</p>
+</section><section class="card-section" data-has-caution="true">
+<h2>给你的建议</h2>
+<p class="item caution" data-caution="true">先别急着折腾抓取脚本，拿手头一篇难啃的广告或长文，直接贴正文试跑一次最省事。只想文字脱水，零配置就能验货；若冲着自动抓链接、拆 B 站或长视频来，建议先看仓库里的测试记录，再测自己的系统和常用模型能不能跑稳。</p>
+</section>
+    <footer>
+      本卡片由 <code>dyz-plain-talk-decoder</code> 本地生成，基于可得证据分析，不构成医疗、投资或法律专业意见。
+    </footer>
+  </main>
+<script>
+  (function () {
+    var allBtn = document.getElementById("btnAll");
+    var cautionBtn = document.getElementById("btnCaution");
+    var printBtn = document.getElementById("btnPrint");
+    allBtn.addEventListener("click", function () {
+      document.body.classList.remove("filter-caution");
+      allBtn.classList.add("active");
+      cautionBtn.classList.remove("active");
+    });
+    cautionBtn.addEventListener("click", function () {
+      document.body.classList.add("filter-caution");
+      cautionBtn.classList.add("active");
+      allBtn.classList.remove("active");
+    });
+    printBtn.addEventListener("click", function () { window.print(); });
+  })();
+</script>
+</body>
+</html>
