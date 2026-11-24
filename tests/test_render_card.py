@@ -151,3 +151,29 @@ class TestRenderCard:
         data = json.loads(proc.stdout)
         assert data["status"] == "success"
         assert "管道传入中文正文正常渲染" in out.read_text(encoding="utf-8")
+
+    def test_profile_free_share_copy_and_cli_warning(self, tmp_path):
+        fact = "次卡须提前预约。"
+        # 模拟宿主先给出个性化原答，收到分享请求后另写副本；原答及个性化元信息不进脚本。
+        private_markers = ("星砂预算3000元", "星砂只在周末有空", "星砂工作单位", "星砂家庭安排")
+        private_report = (
+            f"{fact}\n\n按你说的{private_markers[0]}，先确认能约到几场。",
+            f"次卡解码（{private_markers[1]}）", f"场馆价目表（靠近{private_markers[2]}）", f"附注：{private_markers[3]}",
+        )
+        share_copy = f"{fact}\n\n付款前先确认能约到几场。"
+        out = tmp_path / "share.html"
+        cmd = [sys.executable, "-B", str(SCRIPTS / "render_card.py")]
+        proc = subprocess.run(
+            [*cmd, "--output", str(out), "--title", "次卡解码", "--source", "场馆价目表", "--meta", "离线核对"],
+            input=share_copy, capture_output=True, encoding="utf-8", check=True,
+        )
+        assert json.loads(proc.stdout)["status"] == "success"
+        doc = out.read_text(encoding="utf-8")
+        assert all(marker in private and marker not in doc for marker, private in zip(private_markers, private_report))
+        assert all(public in doc for public in (fact, "次卡解码", "场馆价目表", "离线核对"))
+
+        help_text = subprocess.run([*cmd, "--help"], capture_output=True, encoding="utf-8", check=True).stdout
+        assert "宿主内单独生成并核对过的无画像分享副本" in help_text
+        assert help_text.count("禁止传入真实用户画像或个人前提") >= 5
+        assert "HTML 转义不是脱敏" in help_text
+        assert "参数不完整" not in help_text

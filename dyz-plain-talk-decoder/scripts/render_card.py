@@ -5,6 +5,9 @@
 # ///
 """可选单页 HTML 分享卡片生成器（纯标准库，零外部依赖）。
 
+仅接受宿主内单独生成并核对过的无画像分享副本。正文、--title、--source、--meta
+均禁止传入真实用户画像或个人前提。HTML 转义不是脱敏；不能确认已去除时不要导出。
+
 用法：
     python scripts/render_card.py --file report.md --output card.html [--title "标题"] [--source "来源"]
     python scripts/render_card.py --output card.html < report.md
@@ -321,7 +324,7 @@ def render_card_html(
     source: str = "",
     meta_note: str = "",
 ) -> tuple[str, dict[str, int]]:
-    """把解码报告 Markdown 渲染成零依赖单页 HTML。返回 (html_str, stats)。"""
+    """把宿主核对过的无画像分享副本渲染成 HTML；正文和元信息都不会在此脱敏。"""
     sections = _parse_sections(markdown_text)
     rendered_sections: list[str] = []
     total_cautions = 0
@@ -565,12 +568,16 @@ def render_card_html(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="将解码报告渲染为单页 HTML 分享卡片")
-    parser.add_argument("--file", default="", help="输入 Markdown 报告路径；留空则读取标准输入")
+    no_profile = "禁止传入真实用户画像或个人前提"
+    parser = argparse.ArgumentParser(description=(
+        "将解码报告渲染为单页 HTML 分享卡片。仅接受宿主内单独生成并核对过的无画像分享副本。"
+        f"正文、--title、--source、--meta 均{no_profile}。HTML 转义不是脱敏；不能确认已去除时不要导出。"
+    ))
+    parser.add_argument("--file", default="", help=f"无画像 Markdown 分享副本路径；留空则读取标准输入。两种方式均{no_profile}")
     parser.add_argument("--output", required=True, help="输出 HTML 文件路径")
-    parser.add_argument("--title", default="人话解码报告", help="卡片标题")
-    parser.add_argument("--source", default="", help="来源说明（如公众号名/链接域名）")
-    parser.add_argument("--meta", default="", help="附加元信息（如标准版·未联网核查）")
+    parser.add_argument("--title", default="人话解码报告", help=f"卡片标题，{no_profile}")
+    parser.add_argument("--source", default="", help=f"来源说明（如公众号名/链接域名），{no_profile}")
+    parser.add_argument("--meta", default="", help=f"附加元信息（如标准版·未联网核查），{no_profile}")
     return parser
 
 
@@ -614,7 +621,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "caution_items": stats["caution_items"],
                 "user_hint": f"已生成离线单页分享卡片：{out_path.name}（用浏览器直接打开即可查看或存为 PDF）。",
             }
-    except SystemExit:
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
         result = {
             "status": "failed",
             "output_path": "",
