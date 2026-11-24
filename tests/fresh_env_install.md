@@ -104,3 +104,17 @@ B站 L1 成功样本仍缺（K-08 残留，非本次环境问题）。
 - B站 L1 软字幕成功样本仍缺（K-08）。
 - T2 平台（微博/X/小红书/抖音）真实成功抓取未覆盖（R-09，选做未做；T2 失败不算缺陷）。
 - 云端 ASR 未在全新环境重测（Phase 3 已用仓库环境实测通过，脚本与依赖清单未变）。
+
+## 八、2026-11-25 候选分支 Windows 本地复验（`v0.1.0` 就绪核验）
+
+日期：2026-11-25。对象：本地候选分支 `autopilot/v010-release-readiness`（M4 就绪核验快照）。在 Windows 本机独立执行以下 4 项硬证据核验：
+
+1. **分发包归档自包含检验**：运行 `git archive --format=zip HEAD dyz-plain-talk-decoder` 检查归档内容——共包含 **30 个分发文件**（`SKILL.md`、14 份 `references/` 手册、13 个 `scripts/` 运行文件与 2 份 `requirements*.txt`），**0 个缓存、测试、开发配置或隐私文件**混入。
+2. **隔离虚拟环境按 README 安装与自检**：将归档解包至系统临时目录，新建隔离 `venv`（Python 3.14.6），按 `README.md` 运行 `pip install -r requirements.txt`，再执行 `python scripts/check_env.py`——退出码 0，标准输出为单份合法 UTF-8 JSON，`paste_text=true`、`fetch_articles=true`，未安装的可选依赖（视频/ASR）诚实降级并给出普通人可读安装指引，无异常堆栈。
+3. **本机 `uv 0.13.9` 不联网 3 条脚本冒烟**：在离线条件下直接执行 `uv run scripts/check_env.py`、`uv run scripts/lint_report.py --tier fast --offline` 与 `uv run scripts/render_card.py`——3 条命令均以退出码 0 结束，标准输出 JSON 与生成的单页 HTML 卡片结构合规。
+4. **真实 Chromium 浏览器交互验收（`ego-browser`）**：在本地真实 Chromium 浏览器中打开由现行 `render_card.py` 渲染的卡片并实测交互：
+   - `examples/01-self-audit-readme.html`：历史声明正常展示，0 外链，打印样式（`@media print`）下工具条自动隐藏，点击「只看存疑与避坑」精准隐藏非 caution 条目，点击「看全文」完整恢复，**0 条控制台报错**；
+   - `examples/03-prepaid-and-finance.md` 渲染卡片：自然段首段 `lead-item` 筛选保护生效、识别 2 处 caution 条目，**0 条控制台报错**；
+   - `examples/05-clean-article-no-nitpick.md` 渲染卡片：干净样本 `caution_items=0` 零误标，**0 条控制台报错**。
+
+**本节复验范围边界**：本复验仅覆盖 Windows 本机离线打包、基础层隔离安装、`uv 0.13.9` 离线冒烟与浏览器本地分享卡交互，**不含**实网抓取、macOS/Linux 实机安装、多宿主自然触发、`.claude-plugin/` 插件市场实装或真实 ASR 端到端转写。
