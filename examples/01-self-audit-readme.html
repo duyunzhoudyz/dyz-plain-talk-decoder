@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>自查本仓库 README.md · 人话解码器</title>
+<title>自查本仓库早期 README.md（2026-11-22 历史快照） · 人话解码器</title>
 <style>
   :root {
     --bg: #f6f7f9;
@@ -177,29 +177,26 @@
   <main class="shell">
     <header>
       <div class="brand">人话解码器 · PLAIN-TALK DECODER</div>
-      <h1>自查本仓库 README.md</h1>
-      <div class="meta">生成日期：2026-11-23 · 来源：dyz-plain-talk-decoder/README.md · 标准版 · 平实直白 · 离线</div>
+      <h1>自查本仓库早期 README.md（2026-11-22 历史快照）</h1>
+      <div class="meta">生成日期：2026-11-25 · 来源：dyz-plain-talk-decoder/README.md（2026-11-22 早期快照，所列缺口已整改） · 标准版 · 平实直白 · 离线</div>
       <div class="toolbar">
         <button class="btn active" id="btnAll" type="button">看全文</button>
-        <button class="btn" id="btnCaution" type="button">只看存疑与避坑（1）</button>
+        <button class="btn" id="btnCaution" type="button">只看存疑与避坑（2）</button>
         <button class="btn" id="btnPrint" type="button">打印 / 存为 PDF</button>
       </div>
     </header>
     <section class="card-section lead-section" data-has-caution="true">
 <h2>一句话讲人话</h2>
-<blockquote class="lead item" data-caution="false">这是开源技能“人话解码器”作者的自荐说明，想让你安装试用。它在同类项目里算很坦诚的，主动亮了半成品状态和一堆限制，但光看这份说明还判断不了实际解码好不好用。</blockquote>
+<blockquote class="lead item" data-caution="true">【历史快照自查示范｜审阅对象为 2026-11-22 早期 README，所列缺口已整改】这是开源技能“人话解码器”作者的自荐说明，想让你安装试用。它在同类项目里算很坦诚，主动亮了半成品状态和多项限制，但单看这份说明还判断不了实际解码成色。</blockquote>
 </section><section class="card-section" data-has-caution="true">
 <h2>事实与拆解</h2>
 <ul>
-<li class="item" data-caution="false"><strong>对方重点让你看的</strong>：MIT 开源，纯贴文字不装 Python 或密钥就能用，抓链接、字幕、转写和抽帧都是可选增强。真实亮点在于主动交代边界：开头自称“中文文本 Beta 候选版”，写清了平台分级、云端转写自费、本地画像须经同意落盘，以及医疗、投资、法律不替人做决定。</li>
-<li class="item caution" data-caution="true"><strong>对方没有提到或一笔带过的</strong>：一，全文只列了提问示例和功能表，没放任何一组“原文对输出”的直观样板（仅附仓库验收文档链接），外人看不出成色。二，“推荐”与实测进度有落差：安装区把 <code>uv</code> 标为推荐、将 B 站列为优先维护，后文却承认 <code>uv</code> 未真机跑过、macOS/Linux 实装与多宿主自动触发未验证，B 站公开软字幕仍缺实网成功样本。三，没说明主要在哪些大模型上测过，换模型后效果会差多少。</li>
+<li class="item" data-caution="false"><strong>对方重点让你看的</strong>：MIT 开源，纯贴文字不装 Python 或密钥就能用，抓链接、字幕、转写和抽帧都是可选增强。真实亮点在于主动交代边界：自称“中文文本 Beta 候选版”，写清了平台分级、云端转写自费、本地画像须经同意落盘，以及医疗、投资、法律不替人做决定。</li>
+<li class="item caution" data-caution="true"><strong>对方没有提到或一笔带过的</strong>：一，全文只列了提问示例和功能表，没放“原文对输出”的直观样板，外人看不出成色。二，“推荐”与实测进度有落差：当时安装区把 <code>uv</code> 标为推荐、将 B 站列为优先维护，后文却承认 <code>uv</code> 未真机跑过、macOS/Linux 实装与多宿主自动触发未验证，B 站公开软字幕缺实网成功样本。三，没说明主要在哪些大模型上测过，换模型后效果差多少。</li>
 </ul>
 </section><section class="card-section" data-has-caution="false">
-<h2>核查与可信度</h2>
-<p class="item" data-caution="false">单机 Windows 跑通记录与 YouTube 字幕耗时（6.5 秒 / 16.5 秒）均为作者自述，未联网核查；材料自洽且敢写未验项，但效果与适配信息仍缺位。</p>
-</section><section class="card-section" data-has-caution="false">
-<h2>给你的建议</h2>
-<p class="item" data-caution="false">先别折腾抓取脚本，拿手头一篇难啃的广告或长文贴正文试跑一次最省事。只想文字脱水，零配置即可验货；若冲着自动抓链接、拆 B 站或长视频来，建议先看仓库测试记录，再在自己系统和常用模型上实测。</p>
+<h2>核查与建议</h2>
+<p class="item" data-caution="false">单看这份说明，Windows 跑通记录与 YouTube 耗时（6.5 秒 / 16.5 秒）均为作者自述，材料自洽但效果与适配信息缺位。先别折腾抓取脚本，拿手头一篇难啃的广告或长文贴正文试跑一次最省事；若冲着自动抓链接、拆 B 站或长视频来，先看仓库测试记录，再在自己系统和常用模型上实测。</p>
 </section>
     <footer>
       本卡片由 <code>dyz-plain-talk-decoder</code> 本地生成，基于可得证据分析，不构成医疗、投资或法律专业意见。
