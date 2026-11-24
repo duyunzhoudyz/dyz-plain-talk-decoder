@@ -105,7 +105,8 @@ def _read_cached_json(path: Path) -> Any:
     try:
         with path.open(encoding="utf-8") as fh:
             # 同一打开句柄上检查时间并读取，不能错用另一个进程刚替换进来的文件时间。
-            if not 0 <= time.time() - os.fstat(fh.fileno()).st_mtime <= CACHE_TTL_SEC:
+            # Windows 上刚写入文件的 mtime 可能比 time.time() 快几毫秒，下界留 2 秒容差，仍拒绝明显的“未来文件”。
+            if not -2 <= time.time() - os.fstat(fh.fileno()).st_mtime <= CACHE_TTL_SEC:
                 return None
             return json.load(fh)
     except (OSError, ValueError):
@@ -1095,7 +1096,7 @@ class VideoExtractor:
             with tempfile.TemporaryDirectory(dir=cache_dir) as tmp:
                 staged = Path(tmp) / "transcript.json"
                 staged.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-                staged.replace(cache_dir / "transcript.json")
+                os.replace(staged, cache_dir / "transcript.json")
         except OSError as exc:
             log(f"[缓存] 逐字稿未能写入，下次可能需要重新取材：{type(exc).__name__}")
 
