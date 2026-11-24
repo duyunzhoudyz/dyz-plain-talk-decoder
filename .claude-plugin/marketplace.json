@@ -7,6 +7,7 @@
   "plugins": [
     {
       "name": "dyz-plain-talk-decoder",
+      "version": "0.1.0",
       "source": "./",
       "description": "把文章、公众号、通稿、帖子与视频链接讲成人话，含五模式、五张中文利益场景卡、音视频省流漏斗与防尬黑校准。",
       "category": "productivity",
