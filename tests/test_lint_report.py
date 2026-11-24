@@ -125,3 +125,74 @@ class TestLintReport:
         assert proc.returncode == 0
         data = json.loads(proc.stdout)
         assert data["ok"] is True
+
+    def test_m_series_chips_and_money_supply_not_false_positive(self):
+        """Apple M2 芯片与货币 M1/M2 不得误报为内部术语泄露（P1-2）。"""
+        report = _make_standard_report("\n对比说明：搭载苹果 M2 与 M3 芯片，同时参考货币供应 M1 与 M2 增速。")
+        r = lr.lint_report(report, tier="standard", offline=True)
+        assert not any(w["code"] == "internal_jargon_leak" for w in r["warnings"])
+
+    def test_chinese_adjacent_internal_jargon_still_caught(self):
+        """中文紧贴无空格的 M2/S2 内部术语泄露必须检出（P1-2）。"""
+        report = _make_standard_report("\n备注：本篇按M2通用思路和S2卡来拆解。")
+        r = lr.lint_report(report, tier="standard", offline=True)
+        assert any(w["code"] == "internal_jargon_leak" for w in r["warnings"])
+
+    def test_negated_high_risk_advice_not_false_positive(self):
+        """“不建议你买入这只基金”等合规否定提醒不得误杀（P1-3）。"""
+        report = _make_standard_report("\n风险提示：这里绝不建议你买入这只基金，也不推荐直接服用这种药，请咨询持牌顾问与医生。")
+        r = lr.lint_report(report, tier="standard", offline=True, high_risk=True)
+        assert r["ok"] is True, r
+
+    def test_plain_paragraph_report_checks_profile_leak_in_facts(self):
+        """推荐的无 H2 自然段写法（写法 A）同样必须拦截事实段泄露画像（P1-4）。"""
+        leaked = (
+            "可以继续了解，但先别急着付钱。针对你在杭州预算3000元的情况，厂标速度只是空载极值，不是日常表现。"
+            + "关键条款和对比口径都还有缺口，需要拿到书面报价与活动细则。" * 4
+            + "\n\n"
+            "上月意向登记不是成交量，定金排序和退费规则均未写清。以上仅据商家自述，未联网核查。"
+            + "\n\n"
+            "建议先要书面报价并带常用带材试跑后再决定。"
+        )
+        r = lr.lint_report(leaked, tier="standard", offline=True, profile_terms=["杭州", "预算3000元"])
+        assert any(e["code"] == "profile_leak_in_facts" for e in r["errors"])
+
+        clean = (
+            "可以继续了解，但先别急着付钱。厂标速度只是空载极值，不是日常表现。"
+            + "关键条款和对比口径都还有缺口，需要拿到书面报价与活动细则。" * 4
+            + "\n\n"
+            "上月意向登记不是成交量，定金排序和退费规则均未写清。以上仅据商家自述，未联网核查。"
+            + "\n\n"
+            "按你说的在杭州预算3000元以内，建议先要书面报价并带常用带材试跑后再决定。"
+        )
+        r2 = lr.lint_report(clean, tier="standard", offline=True, profile_terms=["杭州", "预算3000元"])
+        assert not any(e["code"] == "profile_leak_in_facts" for e in r2["errors"])
+
+    def test_cli_stdin_utf8_chinese_works(self):
+        """通过 stdin 传入 UTF-8 中文报告在 Windows 下也必须无编码报错（P1-9）。"""
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "lint_report.py"), "--tier", "standard", "--offline"],
+            input=_make_standard_report(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        assert proc.returncode == 0
+        data = json.loads(proc.stdout)
+        assert data["ok"] is True
+
+    def test_all_public_examples_pass_lint(self):
+        """examples/ 下全部公开样板必须通过自家门禁脚本（P1-10）。"""
+        specs = [
+            ("01-self-audit-readme.md", "standard", False),
+            ("02-product-launch-and-promo.md", "standard", False),
+            ("03-prepaid-and-finance.md", "standard", True),
+            ("04-official-notice.md", "fast", False),
+            ("05-clean-article-no-nitpick.md", "standard", False),
+        ]
+        for name, tier, high_risk in specs:
+            raw = (ROOT / "examples" / name).read_text(encoding="utf-8")
+            body = raw.split("\n---\n", 1)[1].strip()
+            r = lr.lint_report(body, tier=tier, offline=True, high_risk=high_risk)
+            assert r["ok"] is True, f"{name} 未通过门禁：{r}"

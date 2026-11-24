@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 # 用于标注卡片中哪些条目属于“存疑/避坑/缺失/风险”以便一键筛选
+# 不把单纯的“未联网核查”当作避坑项，避免把扎实干净的离线报告误标成避坑。
 CAUTION_KEYWORDS = (
     "[存疑/有出入]",
     "[未证实/单方说法]",
@@ -40,19 +41,26 @@ CAUTION_KEYWORDS = (
     "未写清",
     "未说明",
     "缺证据",
-    "冲突",
+    "与记录冲突",
     "风险",
     "先别急",
     "不建议",
     "不可退",
     "不顺延",
-    "未联网核查",
-    "未核查",
     "水分",
     "漏洞",
     "不是法律意见",
     "持牌",
+    "缺口",
+    "缺失",
 )
+
+# 命中否定语境时不按对应负面词触发避坑，防止“没有明显营销水分”“没有矛盾”被误标
+NEGATED_CAUTION_RE = re.compile(
+    r"(没有明显|无明显|没有|并无|不存在)(?:营销|逻辑)?(?:水分|漏洞|风险|冲突|盲区|缺口)"
+)
+
+CAUTION_HEADING_KEYWORDS = ("盲区", "漏洞", "风险", "存疑", "待核实")
 
 BADGE_REPLACEMENTS = [
     ("[已核实]", '<span class="badge badge-ok">已核实</span>'),
@@ -69,7 +77,7 @@ def _safe_href(url: str) -> str:
 
 
 def _render_inline(text: str) -> str:
-    """渲染安全行内 Markdown（链接、粗体、行内代码、三态徽章），全部先转义 HTML。"""
+    """渲染安全行内 Markdown（行内代码、链接、粗体、三态徽章），全部先转义 HTML。"""
     tokens: list[str] = []
 
     def stash(snippet: str) -> str:
@@ -77,26 +85,31 @@ def _render_inline(text: str) -> str:
         tokens.append(snippet)
         return f"\x00TOK{idx}\x00"
 
-    # 先提取 Markdown 链接，确保只放行 http(s)
+    # 1. 先提取行内代码并立即 stash，防止其中的 **...** 被粗体正则二次改写
+    def repl_code(m: re.Match[str]) -> str:
+        raw_code = m.group(1)
+        for raw_tag, badge_html in BADGE_REPLACEMENTS:
+            if raw_code == raw_tag:
+                return stash(badge_html)
+        return stash(f"<code>{html.escape(raw_code)}</code>")
+
+    work = re.sub(r"`([^`]+)`", repl_code, text)
+
+    # 2. 提取 Markdown 链接，确保只放行 http(s)，链接文字支持粗体
     def repl_link(m: re.Match[str]) -> str:
-        label = html.escape(m.group(1))
+        label = re.sub(r"\*\*([^*]+)\*\*", lambda bm: f"<strong>{bm.group(1)}</strong>", html.escape(m.group(1)))
         href = _safe_href(m.group(2))
         if not href:
             return stash(label)
         return stash(f'<a href="{href}" target="_blank" rel="noopener noreferrer">{label}</a>')
 
-    work = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", repl_link, text)
+    work = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", repl_link, work)
     work = html.escape(work)
 
-    # 行内代码
-    work = re.sub(r"`([^`]+)`", lambda m: f"<code>{m.group(1)}</code>", work)
-    # 粗体
+    # 3. 粗体与未包反引号的三态徽章
     work = re.sub(r"\*\*([^*]+)\*\*", lambda m: f"<strong>{m.group(1)}</strong>", work)
-
     for raw_tag, badge_html in BADGE_REPLACEMENTS:
-        escaped_tag = html.escape(raw_tag)
-        work = work.replace(f"<code>{escaped_tag}</code>", badge_html)
-        work = work.replace(escaped_tag, badge_html)
+        work = work.replace(html.escape(raw_tag), badge_html)
 
     for idx, snippet in enumerate(tokens):
         work = work.replace(f"\x00TOK{idx}\x00", snippet)
@@ -104,109 +117,199 @@ def _render_inline(text: str) -> str:
 
 
 def _is_caution(text: str) -> bool:
-    return any(k in text for k in CAUTION_KEYWORDS)
+    scrubbed = NEGATED_CAUTION_RE.sub("", text or "")
+    return any(k in scrubbed for k in CAUTION_KEYWORDS)
+
+
+def _heading_is_caution(heading: str) -> bool:
+    return any(k in (heading or "") for k in CAUTION_HEADING_KEYWORDS)
+
+
+def _is_table_sep(line: str) -> bool:
+    return bool(re.fullmatch(r"\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?", line.strip()))
+
+
+def _split_table_row(line: str) -> list[str]:
+    stripped = line.strip().strip("|")
+    return [cell.strip() for cell in stripped.split("|")]
 
 
 def _parse_sections(markdown_text: str) -> list[dict[str, Any]]:
-    """按 H2/H3 切分报告；没有标题的纯自然段报告归入单节。"""
+    """按 H2/H3 切分报告；跳过围栏代码块里的 # 注释；没有标题的纯自然段归入单节。"""
     sections: list[dict[str, Any]] = []
     current: dict[str, Any] = {"heading": "", "lines": []}
+    in_fence = False
     for raw_line in markdown_text.splitlines():
-        m = re.match(r"^#{1,3}\s+(.+)$", raw_line.strip())
-        if m:
-            if current["heading"] or any(line.strip() for line in current["lines"]):
-                sections.append(current)
-            current = {"heading": m.group(1).strip(), "lines": []}
-        else:
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
             current["lines"].append(raw_line)
+            continue
+        if not in_fence:
+            m = re.match(r"^#{1,3}\s+(.+)$", stripped)
+            if m:
+                if current["heading"] or any(line.strip() for line in current["lines"]):
+                    sections.append(current)
+                current = {"heading": m.group(1).strip(), "lines": []}
+                continue
+        current["lines"].append(raw_line)
     if current["heading"] or any(line.strip() for line in current["lines"]):
         sections.append(current)
     return sections
 
 
-def _render_blocks(lines: list[str], section_heading: str) -> tuple[str, int]:
-    """把一节内的段落、引用和列表渲染成带筛选标记的 HTML，返回 (html, caution_count)。"""
+def _render_blocks(lines: list[str], section_heading: str, *, mark_first_lead: bool = False) -> tuple[str, int]:
+    """把一节内的段落、引用、列表（含嵌套）、表格、分割线和代码块渲染成 HTML。"""
     parts: list[str] = []
     caution_count = 0
-    in_ul = False
-    in_ol = False
+    heading_caution = _heading_is_caution(section_heading)
+    list_stack: list[tuple[str, int]] = []  # [(tag, indent), ...]
     para_buf: list[str] = []
+    quote_buf: list[str] = []
+    lead_marked = False
 
-    def close_lists() -> None:
-        nonlocal in_ul, in_ol
-        if in_ul:
-            parts.append("</ul>")
-            in_ul = False
-        if in_ol:
-            parts.append("</ol>")
-            in_ol = False
+    def close_lists(target_indent: int = -1) -> None:
+        while list_stack and list_stack[-1][1] > target_indent:
+            tag, _ = list_stack.pop()
+            parts.append(f"</{tag}>")
+
+    def flush_quote() -> None:
+        nonlocal caution_count, lead_marked
+        if not quote_buf:
+            return
+        raw = " ".join(quote_buf)
+        quote_buf.clear()
+        caution = _is_caution(raw) or heading_caution
+        if caution:
+            caution_count += 1
+        extra = " lead-item" if (mark_first_lead and not lead_marked) else ""
+        if extra:
+            lead_marked = True
+        parts.append(
+            f'<blockquote class="lead item{extra}" data-caution="{str(caution).lower()}">'
+            f"{_render_inline(raw)}</blockquote>"
+        )
 
     def flush_para() -> None:
-        nonlocal caution_count
+        nonlocal caution_count, lead_marked
         if not para_buf:
             return
         raw = " ".join(s.strip() for s in para_buf)
         para_buf.clear()
-        caution = _is_caution(raw) or _is_caution(section_heading)
+        caution = _is_caution(raw) or heading_caution
         if caution:
             caution_count += 1
-        cls = "item caution" if caution else "item"
+        extra = " lead-item" if (mark_first_lead and not lead_marked) else ""
+        if extra:
+            lead_marked = True
+        cls = f"item caution{extra}" if caution else f"item{extra}"
         parts.append(f'<p class="{cls}" data-caution="{str(caution).lower()}">{_render_inline(raw)}</p>')
 
-    for line in lines:
-        s = line.strip()
+    i = 0
+    total = len(lines)
+    while i < total:
+        raw_line = lines[i]
+        s = raw_line.strip()
+
+        # 围栏代码块
+        if s.startswith("```"):
+            flush_para()
+            flush_quote()
+            close_lists()
+            code_lines: list[str] = []
+            i += 1
+            while i < total and not lines[i].strip().startswith("```"):
+                code_lines.append(lines[i])
+                i += 1
+            code_html = html.escape("\n".join(code_lines))
+            parts.append(f'<pre class="item" data-caution="false"><code>{code_html}</code></pre>')
+            i += 1
+            continue
+
         if not s:
             flush_para()
+            flush_quote()
             close_lists()
+            i += 1
             continue
+
+        # 水平分割线
+        if re.fullmatch(r"([-*_])\1{2,}", s):
+            flush_para()
+            flush_quote()
+            close_lists()
+            parts.append('<hr class="divider" />')
+            i += 1
+            continue
+
+        # Markdown 表格（表头 + 分隔线）
+        if "|" in s and i + 1 < total and _is_table_sep(lines[i + 1]):
+            flush_para()
+            flush_quote()
+            close_lists()
+            headers = _split_table_row(s)
+            i += 2
+            rows: list[list[str]] = []
+            while i < total and "|" in lines[i].strip() and lines[i].strip():
+                rows.append(_split_table_row(lines[i]))
+                i += 1
+            table_text = " ".join(headers + [c for r in rows for c in r])
+            caution = _is_caution(table_text) or heading_caution
+            if caution:
+                caution_count += 1
+            th = "".join(f"<th>{_render_inline(h)}</th>" for h in headers)
+            tbody = "".join(
+                "<tr>" + "".join(f"<td>{_render_inline(c)}</td>" for c in r) + "</tr>"
+                for r in rows
+            )
+            parts.append(
+                f'<div class="table-wrap item" data-caution="{str(caution).lower()}">'
+                f"<table><thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table></div>"
+            )
+            continue
+
+        # 引用块（多行连续 > 合并为一个 blockquote）
         if s.startswith(">"):
             flush_para()
             close_lists()
-            quote_text = s.lstrip(">").strip()
-            caution = _is_caution(quote_text)
-            if caution:
-                caution_count += 1
-            parts.append(
-                f'<blockquote class="lead item" data-caution="{str(caution).lower()}">'
-                f"{_render_inline(quote_text)}</blockquote>"
-            )
+            quote_buf.append(s.lstrip(">").strip())
+            i += 1
             continue
+        flush_quote()
+
+        # 有序/无序列表（支持缩进嵌套）
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
         ul_m = re.match(r"^[-*+]\s+(.+)$", s)
-        if ul_m:
-            flush_para()
-            if in_ol:
-                parts.append("</ol>")
-                in_ol = False
-            if not in_ul:
-                parts.append("<ul>")
-                in_ul = True
-            item_text = ul_m.group(1)
-            caution = _is_caution(item_text)
-            if caution:
-                caution_count += 1
-            cls = "item caution" if caution else "item"
-            parts.append(f'<li class="{cls}" data-caution="{str(caution).lower()}">{_render_inline(item_text)}</li>')
-            continue
         ol_m = re.match(r"^\d+\.\s+(.+)$", s)
-        if ol_m:
+        if ul_m or ol_m:
             flush_para()
-            if in_ul:
-                parts.append("</ul>")
-                in_ul = False
-            if not in_ol:
-                parts.append("<ol>")
-                in_ol = True
-            item_text = ol_m.group(1)
-            caution = _is_caution(item_text)
+            tag = "ul" if ul_m else "ol"
+            item_text = ul_m.group(1) if ul_m else ol_m.group(1)
+            if not list_stack or indent > list_stack[-1][1]:
+                parts.append(f"<{tag}>")
+                list_stack.append((tag, indent))
+            else:
+                close_lists(indent)
+                if not list_stack or list_stack[-1][0] != tag:
+                    if list_stack:
+                        old_tag, _ = list_stack.pop()
+                        parts.append(f"</{old_tag}>")
+                    parts.append(f"<{tag}>")
+                    list_stack.append((tag, indent))
+            caution = _is_caution(item_text) or heading_caution
             if caution:
                 caution_count += 1
             cls = "item caution" if caution else "item"
             parts.append(f'<li class="{cls}" data-caution="{str(caution).lower()}">{_render_inline(item_text)}</li>')
+            i += 1
             continue
+
         close_lists()
         para_buf.append(s)
+        i += 1
 
     flush_para()
+    flush_quote()
     close_lists()
     return "\n".join(parts), caution_count
 
@@ -223,14 +326,16 @@ def render_card_html(
     rendered_sections: list[str] = []
     total_cautions = 0
 
-    for sec in sections:
+    for idx, sec in enumerate(sections):
         heading = sec["heading"]
-        body_html, cautions = _render_blocks(sec["lines"], heading)
+        is_lead_section = "一句话" in heading
+        # 无 H2 标题的自然段报告：保护首段结论在筛选模式下不隐藏
+        mark_first_lead = idx == 0 and not heading
+        body_html, cautions = _render_blocks(sec["lines"], heading, mark_first_lead=mark_first_lead)
         total_cautions += cautions
-        is_lead = "一句话" in heading
-        sec_cls = "card-section lead-section" if is_lead else "card-section"
+        sec_cls = "card-section lead-section" if is_lead_section else "card-section"
         h_html = f"<h2>{html.escape(heading)}</h2>" if heading else ""
-        has_caution = "true" if (cautions > 0 or is_lead) else "false"
+        has_caution = "true" if (cautions > 0 or is_lead_section or mark_first_lead) else "false"
         rendered_sections.append(
             f'<section class="{sec_cls}" data-has-caution="{has_caution}">\n{h_html}\n{body_html}\n</section>'
         )
@@ -386,8 +491,23 @@ def render_card_html(
     padding: 1px 5px;
     border-radius: 4px;
   }}
+  pre {{
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    background: var(--unv-bg);
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }}
+  pre code {{ background: transparent; padding: 0; }}
+  hr.divider {{ border: none; border-top: 1px solid var(--border); margin: 16px 0; }}
+  .table-wrap {{ overflow-x: auto; margin: 0 0 12px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+  th, td {{ border: 1px solid var(--border); padding: 6px 10px; text-align: left; }}
+  th {{ background: var(--unv-bg); font-weight: 600; }}
   a {{ color: var(--accent); word-break: break-all; }}
-  body.filter-caution .card-section:not(.lead-section) .item[data-caution="false"] {{ display: none; }}
+  body.filter-caution .card-section:not(.lead-section) .item[data-caution="false"]:not(.lead-item) {{ display: none; }}
   body.filter-caution .card-section[data-has-caution="false"] {{ display: none; }}
   footer {{
     border-top: 1px solid var(--border);
@@ -455,7 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
         except Exception:

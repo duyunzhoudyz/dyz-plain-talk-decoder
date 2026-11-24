@@ -107,7 +107,7 @@ def check_optional() -> list[dict[str, Any]]:
             "ok": ytdlp is not None,
             "version": ytdlp or "",
             "hint": ("" if ytdlp else cli_note + "视频功能需要：pip install yt-dlp") or stale,
-            "needed_for": "视频字幕与音频下载（Phase 3 启用）",
+            "needed_for": "视频链接的字幕与音频下载",
         }
     )
 
@@ -117,8 +117,8 @@ def check_optional() -> list[dict[str, Any]]:
             "name": "ffmpeg",
             "ok": ffmpeg is not None,
             "version": "",
-            "hint": "" if ffmpeg else "视频转写与抽帧需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。",
-            "needed_for": "音频处理与抽帧（Phase 3 启用）",
+            "hint": "" if ffmpeg else "音视频转写与抽帧需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。",
+            "needed_for": "音视频转写与抽帧",
         }
     )
 
@@ -174,6 +174,7 @@ def summarize(core: list[dict], optional: list[dict], python: dict, asr_config: 
         "fetch_articles": can_fetch_articles,
         "video_subtitles": can_fetch_articles and ytdlp_ok,
         "video_transcribe": python["ok"] and ytdlp_ok and ffmpeg_ok and asr_config["ok"] and client_ok,
+        "local_media_transcribe": python["ok"] and ffmpeg_ok and asr_config["ok"] and client_ok,
     }
 
 

@@ -555,6 +555,8 @@ class VideoExtractor:
             )
         ext = resolved.suffix.lower()
         is_video = ext in LOCAL_VIDEO_EXTS
+        # 确保即便外部以默认 VideoExtractor() 调用，缓存读写里的 platform 契约也恒为 "local"
+        self.platform = "local"
         stat = resolved.stat()
         cache_key = f"local:{resolved}@{stat.st_mtime_ns}:{stat.st_size}"
         cache_dir = cache_dir_for(cache_key, start_sec, end_sec)
@@ -568,7 +570,8 @@ class VideoExtractor:
 
         import asr  # 延迟导入
 
-        duration = asr.probe_duration(resolved) or 0.0
+        probed_duration = asr.probe_duration(resolved)
+        duration = probed_duration or 0.0
 
         def local_result(status: str, **kw: Any) -> dict[str, Any]:
             return make_result(
@@ -605,9 +608,27 @@ class VideoExtractor:
                 user_hint="转写本地音视频需要 ffmpeg。Windows 可用 winget install ffmpeg，macOS 可用 brew install ffmpeg。",
             )
 
-        action, message = gate_decision(
-            duration, allow_long=allow_long, start_sec=start_sec, end_sec=end_sec, provider=provider
-        )
+        # 时长未知（如缺 ffprobe 或容器头异常）时，不能按 0 秒悄悄跳过付费/耗时闸门
+        if probed_duration is None:
+            has_bounded_range = start_sec is not None and end_sec is not None
+            if has_bounded_range:
+                action, message = gate_decision(
+                    end_sec, allow_long=allow_long, start_sec=start_sec, end_sec=end_sec, provider=provider
+                )
+            elif not allow_long:
+                cost_note = "云端接口按时长计费" if provider == "openai_compatible" else "本地转写可能耗时较长"
+                action = "confirm"
+                message = (
+                    f"无法提前读取这个本地文件的时长（可能缺少 ffprobe 或文件格式特殊），{cost_note}。"
+                    "为避免超长文件意外产生费用或卡住，请确认是否整段转写（同意后加 --allow-long），"
+                    "或用 --start / --end 指定具体时间段。"
+                )
+            else:
+                action, message = "proceed", ""
+        else:
+            action, message = gate_decision(
+                duration, allow_long=allow_long, start_sec=start_sec, end_sec=end_sec, provider=provider
+            )
         if action != "proceed":
             return local_result(
                 "partial",
@@ -619,12 +640,13 @@ class VideoExtractor:
 
         wav = cache_dir / "audio_16k.wav"
         if not wav.exists():
-            cmd = ["ffmpeg", "-y"]
+            # 将 -ss / -to 放在 -i 之后（output seeking），保证 mp3/aac 等无精确索引流的切段与时间戳对齐
+            cmd = ["ffmpeg", "-y", "-i", str(resolved)]
             if start_sec is not None:
                 cmd += ["-ss", f"{start_sec:.2f}"]
             if end_sec is not None:
                 cmd += ["-to", f"{end_sec:.2f}"]
-            cmd += ["-i", str(resolved), "-vn", "-ac", "1", "-ar", "16000", str(wav)]
+            cmd += ["-vn", "-ac", "1", "-ar", "16000", str(wav)]
             ok, err = _run(cmd, timeout=300)
             if not ok:
                 log(f"[local L2] ffmpeg 转码失败：{err[-300:]}")
@@ -634,6 +656,10 @@ class VideoExtractor:
                     error_reason="missing_dependency",
                     user_hint="音频转码失败，请确认文件未损坏且 ffmpeg 安装完整。",
                 )
+        if duration <= 0 and wav.exists():
+            wav_dur = asr.probe_duration(wav)
+            if wav_dur:
+                duration = wav_dur + (start_sec or 0.0)
 
         tr = asr.transcribe_file(wav, offset_sec=start_sec or 0.0)
         if not tr.get("ok"):
@@ -695,7 +721,7 @@ class VideoExtractor:
                 error_reason=cached["error_reason"] or "missing_dependency",
                 user_hint=" ".join(filter(None, (cached["user_hint"], "抽帧需要 ffmpeg，逐字稿已拿到，可先用文字部分。"))),
             )
-        return self._run_l3_on_file(media_path, cache_dir, cached, start_sec, end_sec)
+        return self._run_l3_on_file(media_path, cache_dir, cached, start_sec, end_sec, clipped=False)
 
     # -------------------------------------------------- L0
 
@@ -867,10 +893,6 @@ class VideoExtractor:
                 user_hint="抽帧需要 yt-dlp（pip install yt-dlp）。逐字稿已拿到，可以先用文字部分。",
             )
 
-        full_duration = cached["duration_sec"] or 0
-        end = end_sec if end_sec is not None else full_duration
-        duration = max(0, (min(end, full_duration) if full_duration else end) - (start_sec or 0))
-
         video_files = sorted(cache_dir.glob("video_src.*"))
         if not video_files:
             opts = _ytdlp_base_opts(cache_dir)
@@ -902,7 +924,7 @@ class VideoExtractor:
                 )
         video_path = video_files[0]
         log(f"[L3] 视频文件：{video_path.name}，{video_path.stat().st_size / 1024 / 1024:.1f} MB")
-        return self._run_l3_on_file(video_path, cache_dir, cached, start_sec, end_sec)
+        return self._run_l3_on_file(video_path, cache_dir, cached, start_sec, end_sec, clipped=True, check_cache=False)
 
     def _run_l3_on_file(
         self,
@@ -911,8 +933,16 @@ class VideoExtractor:
         cached: dict[str, Any],
         start_sec: Optional[float],
         end_sec: Optional[float],
+        *,
+        clipped: bool = True,
+        check_cache: bool = True,
     ) -> dict[str, Any]:
-        """对已有本地视频文件执行场景/软切抽帧并写入带完整性校验的索引。"""
+        """对已有视频文件执行场景/软切抽帧并写入带完整性校验的索引。
+
+        clipped=True 表示 video_path 已被截断为 [start_sec, end_sec]（在线 yt-dlp 片段，内部从 0s 起算）；
+        clipped=False 表示 video_path 是未截断的整部本地原片，抽帧时必须限定在 [start_sec, end_sec] 内，
+        并确保输出帧文件名使用原片绝对秒数且不重复叠加 start_sec。
+        """
         def frame_result(keyframes: list[str], error_reason: str = "", user_hint: str = "") -> dict[str, Any]:
             method = cached["extraction_method"]
             return dict(
@@ -927,27 +957,32 @@ class VideoExtractor:
 
         frames_dir = cache_dir / "frames"
         index_path = frames_dir / "index.json"
-        index = _read_cached_json(index_path)
-        if isinstance(index, dict) and 0 < len(index) <= FRAME_MAX_COUNT and all(
-            re.fullmatch(r"frame_\d{5,}s\.jpg", name) and digest and digest == _frame_digest(frames_dir / name)
-            for name, digest in index.items()
-        ):
-            log(f"[L3] 复用缓存关键帧 {len(index)} 张")
-            return frame_result([str(frames_dir / name) for name in index])
+        if check_cache:
+            index = _read_cached_json(index_path)
+            if isinstance(index, dict) and 0 < len(index) <= FRAME_MAX_COUNT and all(
+                re.fullmatch(r"frame_\d{5,}s\.jpg", name) and digest and digest == _frame_digest(frames_dir / name)
+                for name, digest in index.items()
+            ):
+                log(f"[L3] 复用缓存关键帧 {len(index)} 张")
+                return frame_result([str(frames_dir / name) for name in index])
 
         full_duration = cached["duration_sec"] or 0
         end = end_sec if end_sec is not None else full_duration
         duration = max(0, (min(end, full_duration) if full_duration else end) - (start_sec or 0))
+        seek_start = None if clipped else start_sec
+        seek_duration = None if clipped or end_sec is None else max(0.0, end_sec - (start_sec or 0.0))
 
         try:
             frames_dir.mkdir(parents=True, exist_ok=True)
             # 同一请求可能并发或在 ffmpeg 中断后重试；只接收本次私有目录里的输出。
             with tempfile.TemporaryDirectory(dir=frames_dir) as tmp:
                 work = Path(tmp)
-                kept = self._scene_frames(video_path, work, duration)
+                kept = self._scene_frames(
+                    video_path, work, duration, seek_start=seek_start, seek_duration=seek_duration
+                )
                 if not kept:
                     log("[L3] 没有可定位的场景帧，改用均匀间隔兜底")
-                    kept = self._fallback_frames(video_path, work, duration, start_sec)
+                    kept = self._fallback_frames(video_path, work, duration, seek_start=seek_start)
                 if not kept:
                     return frame_result([], "missing_dependency", "抽帧没有成功，请确认 ffmpeg 安装完整。逐字稿已拿到，可以先用文字部分。")
 
@@ -956,6 +991,7 @@ class VideoExtractor:
                     digest = _frame_digest(path)
                     if not digest:
                         return frame_result([], "network", "关键帧文件不完整。请提供关键画面的截图，或先用已取得的文字。")
+                    # kept 返回的 t 统一为“相对本次请求起点的秒数”，这里统一加一次 start_sec 得原片绝对秒
                     name = f"frame_{round((start_sec or 0.0) + t):05d}s.jpg"
                     path.replace(frames_dir / name)
                     index[name] = digest
@@ -969,18 +1005,29 @@ class VideoExtractor:
         log(f"[L3] 关键帧 {len(index)} 张")
         return frame_result([str(frames_dir / name) for name in index])
 
-    def _scene_frames(self, video_path: Path, work: Path, duration: float) -> list[tuple[Path, float]]:
-        """只接受本轮有时间依据的硬切帧；不可定位时尝试按软切换时间重新取帧。"""
+    def _scene_frames(
+        self,
+        video_path: Path,
+        work: Path,
+        duration: float,
+        *,
+        seek_start: Optional[float] = None,
+        seek_duration: Optional[float] = None,
+    ) -> list[tuple[Path, float]]:
+        """只接受本轮有时间依据的硬切帧；不可定位时尝试按软切换时间重新取帧。返回相对区间起点的秒数。"""
         scale = f"scale=w='min(iw,{FRAME_LONG_SIDE})':h='min(ih,{FRAME_LONG_SIDE})':force_original_aspect_ratio=decrease"
-        ok, err = _run(
-            [
-                "ffmpeg", "-y", "-i", str(video_path),
-                "-vf", f"select='gt(scene,{SCENE_THRESHOLD})',showinfo,{scale}",
-                "-fps_mode", "vfr", "-q:v", "5",
-                str(work / "scene_%04d.jpg"),
-            ],
-            timeout=600,
-        )
+        cmd = ["ffmpeg", "-y"]
+        if seek_start is not None:
+            cmd += ["-ss", f"{seek_start:.2f}"]
+        if seek_duration is not None:
+            cmd += ["-t", f"{seek_duration:.2f}"]
+        cmd += [
+            "-i", str(video_path),
+            "-vf", f"select='gt(scene,{SCENE_THRESHOLD})',showinfo,{scale}",
+            "-fps_mode", "vfr", "-q:v", "5",
+            str(work / "scene_%04d.jpg"),
+        ]
+        ok, err = _run(cmd, timeout=600)
         if ok:
             try:
                 times = [float(t) for t in re.findall(r"\bpts_time:(\S+)", err)]
@@ -992,12 +1039,18 @@ class VideoExtractor:
                 return _select_frames(pairs, duration)
 
         # 硬切失败时可能留下本轮的残帧，定点重抽要用另一个输出名。
-        times = _soft_scene_times(_scan_scene_scores(video_path), duration)
+        # 无区间裁剪时保持单参数调用，兼容既有调用方与单测打桩。
+        if seek_start is None and seek_duration is None:
+            scores = _scan_scene_scores(video_path)
+        else:
+            scores = _scan_scene_scores(video_path, seek_start=seek_start, seek_duration=seek_duration)
+        times = _soft_scene_times(scores, duration)
         candidates = [(work / f"soft_{i:04d}.jpg", t) for i, t in enumerate(times)]
         kept = []
+        base_offset = seek_start or 0.0
         for path, t in _select_frames(candidates, duration):
             ok, _ = _run(
-                ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(video_path),
+                ["ffmpeg", "-y", "-ss", f"{base_offset + t:.2f}", "-i", str(video_path),
                  "-frames:v", "1", "-vf", scale, "-q:v", "5", str(path)],
                 timeout=60,
             )
@@ -1006,18 +1059,23 @@ class VideoExtractor:
         return kept
 
     def _fallback_frames(
-        self, video_path: Path, frames_dir: Path, duration: float, start_sec: Optional[float]
+        self,
+        video_path: Path,
+        frames_dir: Path,
+        duration: float,
+        seek_start: Optional[float] = None,
     ) -> list[tuple[Path, float]]:
-        """场景检测一张都没抽到时（画面几乎静止），按均匀间隔补抽最多 8 张。"""
+        """场景检测一张都没抽到时（画面几乎静止），按均匀间隔补抽最多 8 张。返回相对区间起点的秒数。"""
         count = min(8, max(1, int(duration // 60) or 1))
         step = (duration or count) / count
         scale = f"scale=w='min(iw,{FRAME_LONG_SIDE})':h='min(ih,{FRAME_LONG_SIDE})':force_original_aspect_ratio=decrease"
+        base_offset = seek_start or 0.0
         kept: list[tuple[Path, float]] = []
         for i in range(count):
             t = step * i + step / 2
             target = frames_dir / f"fallback_{i:02d}.jpg"
             ok, _ = _run(
-                ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(video_path),
+                ["ffmpeg", "-y", "-ss", f"{base_offset + t:.2f}", "-i", str(video_path),
                  "-frames:v", "1", "-vf", scale, "-q:v", "5", str(target)],
                 timeout=60,
             )
@@ -1078,19 +1136,31 @@ class VideoExtractor:
         return None
 
 
-def _scan_scene_scores(video_path: Path, timeout: float = 600) -> list[tuple[float, float]]:
-    """低阈值全量扫描，返回 (时间, 场景分数) 序列。
+def _scan_scene_scores(
+    video_path: Path,
+    timeout: float = 600,
+    *,
+    seek_start: Optional[float] = None,
+    seek_duration: Optional[float] = None,
+) -> list[tuple[float, float]]:
+    """低阈值全量扫描，返回 (相对起点时间, 场景分数) 序列。
 
     用 metadata=print 读 select 过滤器写入的分数（ffmpeg 8 不再把分数
     打进 showinfo 行）。失败或超时返回空列表，由调用方走兜底。
     """
+    cmd = ["ffmpeg", "-loglevel", "info"]
+    if seek_start is not None:
+        cmd += ["-ss", f"{seek_start:.2f}"]
+    if seek_duration is not None:
+        cmd += ["-t", f"{seek_duration:.2f}"]
+    cmd += [
+        "-i", str(video_path),
+        "-vf", f"select='gt(scene,{SCENE_SCAN_FLOOR})',metadata=print:file=-",
+        "-fps_mode", "vfr", "-f", "null", "-",
+    ]
     try:
         proc = subprocess.run(
-            [
-                "ffmpeg", "-loglevel", "info", "-i", str(video_path),
-                "-vf", f"select='gt(scene,{SCENE_SCAN_FLOOR})',metadata=print:file=-",
-                "-fps_mode", "vfr", "-f", "null", "-",
-            ],
+            cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except (subprocess.TimeoutExpired, OSError):

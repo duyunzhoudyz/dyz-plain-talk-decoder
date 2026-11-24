@@ -97,13 +97,6 @@ def parse_xiaoyuzhou_html(requested_url: str, fetched: Fetched) -> dict[str, Any
         return failed_result("xiaoyuzhou", final_url, "login_wall", source_type="video")
 
     soup = BeautifulSoup(fetched.text, "html.parser")
-    page_text = clean_text(soup.get_text("\n"))
-    if len(page_text) < 1200:
-        hit = find_block_keyword(page_text)
-        if hit:
-            reason = "login_wall" if "登录" in hit or "login" in hit.lower() else "anti_scrape"
-            return failed_result("xiaoyuzhou", final_url, reason, source_type="video")
-
     ep = _extract_next_episode(soup)
 
     title = str(ep.get("title") or "").strip() or _meta(soup, ["og:title", "twitter:title"])
@@ -121,15 +114,12 @@ def parse_xiaoyuzhou_html(requested_url: str, fetched: Fetched) -> dict[str, Any
     if isinstance(dur, (int, float)) and dur > 0:
         duration_sec = float(dur)
 
-    shownotes = ""
-    if ep.get("shownotes"):
-        shownotes = _strip_html(str(ep["shownotes"]))
-    elif ep.get("description"):
-        shownotes = clean_text(str(ep["description"]))
+    shownotes = _strip_html(str(ep.get("shownotes") or ""))
+    if not shownotes:
+        shownotes = clean_text(str(ep.get("description") or ""))
     if not shownotes:
         shownotes = clean_text(_meta(soup, ["og:description", "description"]))
 
-    audio_url = ""
     media = ep.get("media") if isinstance(ep.get("media"), dict) else {}
     source = media.get("source") if isinstance(media.get("source"), dict) else {}
     enclosure = ep.get("enclosure") if isinstance(ep.get("enclosure"), dict) else {}
@@ -138,7 +128,14 @@ def parse_xiaoyuzhou_html(requested_url: str, fetched: Fetched) -> dict[str, Any
         or _meta(soup, ["og:audio", "og:audio:url"])
     )
 
+    # 先提取结构化数据；仅当既无简介也无音频线索时，才检查页面拦截词，避免导航栏“登录”误杀短单集页
     if not shownotes and not audio_url:
+        page_text = clean_text(soup.get_text("\n"))
+        if len(page_text) < 1200:
+            hit = find_block_keyword(page_text)
+            if hit:
+                reason = "login_wall" if "登录" in hit or "login" in hit.lower() else "anti_scrape"
+                return failed_result("xiaoyuzhou", final_url, reason, source_type="video")
         return failed_result(
             "xiaoyuzhou",
             final_url,
@@ -147,10 +144,16 @@ def parse_xiaoyuzhou_html(requested_url: str, fetched: Fetched) -> dict[str, Any
             user_hint="没有从小宇宙页面读到单集简介或音频线索，可能页面需要登录或已下架。请贴出文字稿或提供本地音频文件。",
         )
 
-    hint_parts = [
-        "只拿到了小宇宙单集的文字简介（Shownotes），不是整期播客的逐字稿。",
-        "不要把简介当成全期内容解码；若要完整解读，请提供文字稿或本地音频文件。",
-    ]
+    if shownotes:
+        hint_parts = [
+            "只拿到了小宇宙单集的文字简介（Shownotes），不是整期播客的逐字稿。",
+            "不要把简介当成全期内容解码；若要完整解读，请提供文字稿或本地音频文件。",
+        ]
+    else:
+        hint_parts = [
+            "页面没有读到文字简介（Shownotes），仅发现公开音频线索；未自动下载整期播客。",
+            "请提供文字稿或下载后作为本地音频文件传给我。",
+        ]
     if audio_url:
         hint_parts.append(f"页面公开音频线索：{audio_url}")
 

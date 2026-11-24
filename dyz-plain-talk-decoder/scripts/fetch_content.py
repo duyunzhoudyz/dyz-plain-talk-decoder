@@ -172,14 +172,16 @@ def video_platform_of(url: str) -> str:
 
 
 def detect_local_media(raw: str) -> Optional[Path]:
-    """判断输入是否为本机存在的音视频文件路径（如会议录音、录屏）。"""
+    """判断输入是否为本地音视频文件路径（含路径拼错/不存在的文件，避免被误当裸域名发网）。"""
     text = (raw or "").strip().strip('"').strip("'")
     if not text or "\n" in text or re.match(r"^https?://", text, re.I):
         return None
     try:
         path = Path(text).expanduser()
-        if path.is_file() and path.suffix.lower() in LOCAL_MEDIA_EXTS:
-            return path
+        if path.suffix.lower() in LOCAL_MEDIA_EXTS:
+            # 只要后缀属于音视频且像本地路径或单个文件名（不含多段空格句子），一律走本地路径分支
+            if path.is_file() or any(sep in text for sep in ("/", "\\", ":")) or " " not in text:
+                return path
     except OSError:
         return None
     return None

@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -53,10 +53,16 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Verify PEP 723 zero-venv execution
+      - name: Verify PEP 723 zero-venv execution with JSON assertions
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
         run: |
-          uv run dyz-plain-talk-decoder/scripts/check_env.py
-          uv run dyz-plain-talk-decoder/scripts/cleanup_cache.py
-          uv run dyz-plain-talk-decoder/scripts/fetch_content.py "没有链接的纯文本"
-          uv run dyz-plain-talk-decoder/scripts/lint_report.py --tier fast --offline < dyz-plain-talk-decoder/SKILL.md
-          uv run dyz-plain-talk-decoder/scripts/render_card.py --file examples/01-self-audit-readme.md --output "${{ runner.temp }}/card-smoke.html" --title "自查样本"
+          set -euo pipefail
+          uv run dyz-plain-talk-decoder/scripts/check_env.py | uv run python -c "import json,sys; d=json.load(sys.stdin); assert d['capabilities']['paste_text'] is True, d"
+          uv run dyz-plain-talk-decoder/scripts/cleanup_cache.py | uv run python -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='success', d"
+          uv run dyz-plain-talk-decoder/scripts/fetch_content.py "没有链接的纯文本" | uv run python -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='failed' and d['error_reason']=='not_found', d"
+          uv run python -c "from pathlib import Path; raw=Path('examples/04-official-notice.md').read_text(encoding='utf-8'); print(raw.split('\n---\n',1)[1].strip())" | uv run dyz-plain-talk-decoder/scripts/lint_report.py --tier fast --offline | uv run python -c "import json,sys; d=json.load(sys.stdin); assert d['ok'] is True, d"
+          OUT_HTML="${RUNNER_TEMP}/card-smoke.html"
+          uv run python -c "from pathlib import Path; raw=Path('examples/01-self-audit-readme.md').read_text(encoding='utf-8'); print(raw.split('\n---\n',1)[1].strip())" | uv run dyz-plain-talk-decoder/scripts/render_card.py --output "${OUT_HTML}" --title "自查样本" | uv run python -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='success', d"
+          test -s "${OUT_HTML}"

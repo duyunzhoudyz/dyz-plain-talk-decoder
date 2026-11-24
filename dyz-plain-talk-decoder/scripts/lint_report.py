@@ -54,13 +54,14 @@ OFFLINE_ACK_HINTS = (
     "仅据材料",
 )
 
-# 高风险领域的明确越界决策表述
+# 高风险领域的明确越界决策表述（分句级排除否定前缀，如“绝不建议/也不推荐直接服用”不误杀）
 HIGH_RISK_OVERREACH_PATTERNS = [
-    re.compile(r"(建议|推荐|可以|直接)(你)?(买入|入手|购买|重仓|加仓|抛售|卖出)(这只|该)?(基金|股票|理财|保险)"),
-    re.compile(r"(别买|不要买)(这只|该)(基金|股票|理财|保险)"),
-    re.compile(r"(可以放心|直接|建议你)(服用|吃)(这个|这种|该)药"),
-    re.compile(r"(可以放心签|直接签吧|赶紧签|千万别签这份合同)"),
+    re.compile(r"(?:建议|推荐|可以|直接|值得)(?:你)?(?:买入|入手|购买|买|重仓|加仓|抛售|卖出)(?:这只|这款|该|这个)?(?:基金|股票|理财|保险|产品)"),
+    re.compile(r"(?:别买|不要买|千万别买)(?:这只|这款|该|这个)(?:基金|股票|理财|保险)"),
+    re.compile(r"(?:可以放心|直接|建议你|推荐你)(?:服用|吃|停用|停吃)(?:这个|这种|该)?药"),
+    re.compile(r"(?:可以放心签|直接签吧|赶紧签|千万别签这份合同)"),
 ]
+CLAUSE_NEGATION_RE = re.compile(r"(?:绝不|切勿|不要|不能|不可|不必|无需|不建议|不推荐|也不|并不|别|勿|不)(?:推荐|建议|鼓励|主张|替你)?$")
 
 HIGH_RISK_BOUNDARY_HINTS = (
     "持牌",
@@ -76,20 +77,19 @@ HIGH_RISK_BOUNDARY_HINTS = (
     "不代替专业",
 )
 
-# 面向用户的输出不应暴露的内部工作流术语
+# 面向用户的输出不应暴露的内部工作流术语（精准匹配内部词，避免误报 Apple M2 芯片、货币 M1/M2）
 INTERNAL_JARGON_PATTERNS = [
-    re.compile(r"按消费销售拆"),
+    re.compile(r"按消费销售(?:来)?拆"),
     re.compile(r"通用五问"),
     re.compile(r"场景卡"),
-    re.compile(r"\bM[1-5]\b"),
-    re.compile(r"\bS[1-5]\b"),
+    re.compile(r"(?:主模式|辅模式)"),
+    re.compile(r"(?<![A-Za-z0-9])M[1-5]\s*[+＋/]\s*S[1-5](?![A-Za-z0-9])"),
+    re.compile(r"(?<![A-Za-z0-9])M[1-5]\s*(?:模式|手册|通稿|话术|洗稿|脱水|热点|通用)"),
+    re.compile(r"(?<![A-Za-z0-9])S[1-5]\s*(?:卡|场景)"),
 ]
 
-FACT_SECTION_HEADING = re.compile(
-    r"^#{1,3}\s*(核心事实|事实与拆解|滤镜拆解|核查与可信度|可信度与事实核查|逐句核查)",
-    re.MULTILINE,
-)
 ADVICE_SECTION_HEADING = re.compile(r"^#{1,3}\s*(给你的建议|结论与下一步|建议)", re.MULTILINE)
+PERSONAL_ADVICE_CUE = re.compile(r"(按你说|结合你|按你的|根据你的|给你的建议|下一步|先问|先别急着买)")
 
 
 def count_visible_chars(markdown_text: str) -> tuple[int, int]:
@@ -113,11 +113,20 @@ def count_visible_chars(markdown_text: str) -> tuple[int, int]:
 
 
 def _split_fact_part(text: str) -> str:
-    """若报告分节且存在“给你的建议”节，取建议节之前的正文用于检测画像越界。"""
+    """提取建议部分之前的事实/拆解正文，同时支持带 H2 标题的报告与无 H2 自然段报告。"""
     m = ADVICE_SECTION_HEADING.search(text)
-    if not m:
+    if m:
+        return text[: m.start()].strip()
+    # 无 H2 自然段报告（如写法 A/B）：按空行拆段，末段或明确含个人建议引导的段视为建议段，其之前为事实段
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    if len(paragraphs) < 2:
         return ""
-    return text[: m.start()]
+    fact_paras: list[str] = []
+    for idx, para in enumerate(paragraphs[:-1]):
+        if idx > 0 and PERSONAL_ADVICE_CUE.search(para) and ("按你说" in para or "结合你" in para or "按你的" in para):
+            break
+        fact_paras.append(para)
+    return "\n\n".join(fact_paras)
 
 
 def lint_report(
@@ -185,12 +194,25 @@ def lint_report(
 
     # 3. 高风险边界（医疗、投资理财、法律）
     if high_risk:
+        overreach_hit = ""
         for pat in HIGH_RISK_OVERREACH_PATTERNS:
-            m = pat.search(report)
-            if m:
+            for m in pat.finditer(report):
+                # 取当前分句内命中点之前的短前缀，若为否定语境（如“绝不建议”“也不推荐直接服用”）则放行
+                clause_start = max(
+                    report.rfind(sep, 0, m.start()) + 1 for sep in ("\n", "。", "！", "？", "；", "，", ",", ";", ":")
+                )
+                prefix = report[clause_start : m.start()].strip()
+                if m.group(0).startswith(("别买", "不要买", "千万别买", "千万别签")):
+                    overreach_hit = m.group(0)
+                    break
+                if CLAUSE_NEGATION_RE.search(prefix):
+                    continue
+                overreach_hit = m.group(0)
+                break
+            if overreach_hit:
                 errors.append({
                     "code": "high_risk_overreach",
-                    "message": f"高风险领域疑似替用户做最终决定：「{m.group(0)}」。",
+                    "message": f"高风险领域疑似替用户做最终决定：「{overreach_hit}」。",
                 })
                 break
         if not any(hint in report for hint in HIGH_RISK_BOUNDARY_HINTS):
@@ -223,12 +245,12 @@ def lint_report(
                     "message": f"用户画像信息泄露进联网搜索词（命中 {len(leaked_in_search)} 项）。",
                 })
         fact_part = _split_fact_part(report)
-        if fact_part and FACT_SECTION_HEADING.search(fact_part):
+        if fact_part:
             leaked_in_facts = [t for t in clean_terms if t in fact_part]
             if leaked_in_facts:
                 errors.append({
                     "code": "profile_leak_in_facts",
-                    "message": f"用户画像信息出现在建议节之前的事实/拆解部分（命中 {len(leaked_in_facts)} 项）。",
+                    "message": f"用户画像信息出现在建议之前的事实/拆解部分（命中 {len(leaked_in_facts)} 项）。",
                 })
 
     return {
@@ -253,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
         except Exception:

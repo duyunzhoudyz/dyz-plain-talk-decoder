@@ -563,3 +563,46 @@ class TestPodcastXiaoyuzhou:
         assert_contract(r)
         assert r["status"] == "failed"
         assert "本地音频" in r["user_hint"]
+
+    def test_short_episode_with_login_nav_not_blocked_when_next_data_present(self):
+        """短单集页导航栏带“扫码登录/请登录后”时，只要 __NEXT_DATA__ 有效就不被误杀（P1-6）。"""
+        payload = json.dumps({
+            "props": {
+                "pageProps": {
+                    "episode": {
+                        "title": "短节目单集",
+                        "podcast": {"title": "播客甲"},
+                        "shownotes": "<p><br></p>",
+                        "description": "这是回退的文字简介，说明本期主题。",
+                    }
+                }
+            }
+        }, ensure_ascii=False)
+        html = (
+            '<html><body><nav>扫码登录 / 请登录后收藏</nav>'
+            f'<script id="__NEXT_DATA__" type="application/json">{payload}</script></body></html>'
+        )
+        r = parse_xiaoyuzhou_html(self.URL, Fetched(final_url=self.URL, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "partial"
+        assert "回退的文字简介" in r["content_text"]
+
+    def test_audio_only_without_shownotes_reports_honestly(self):
+        """仅有音频直链、无 Shownotes 时，提示不得谎称“拿到了文字简介”（P1-6）。"""
+        payload = json.dumps({
+            "props": {
+                "pageProps": {
+                    "episode": {
+                        "title": "无简介单集",
+                        "media": {"source": {"url": "https://media.xyzcdn.net/only.m4a"}},
+                    }
+                }
+            }
+        }, ensure_ascii=False)
+        html = f'<html><body><script id="__NEXT_DATA__">{payload}</script></body></html>'
+        r = parse_xiaoyuzhou_html(self.URL, Fetched(final_url=self.URL, status_code=200, text=html))
+        assert_contract(r)
+        assert r["status"] == "partial"
+        assert r["content_text"] == ""
+        assert "没有读到文字简介" in r["user_hint"]
+        assert "https://media.xyzcdn.net/only.m4a" in r["user_hint"]

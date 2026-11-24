@@ -1009,3 +1009,106 @@ class TestLocalMedia:
         assert r["funnel_level"] == "L3"
         assert r["extraction_method"] == "asr+frames"
         assert len(r["keyframes"]) == 1
+
+    def test_local_unknown_duration_triggers_confirm_gate(self, cache_tmp, tmp_path, monkeypatch):
+        """缺 ffprobe 导致时长未知时，必须触发确认闸门，不得按 0s 悄悄调付费 ASR（P0-3）。"""
+        import asr as asr_mod
+
+        audio = tmp_path / "unknown_len.mp3"
+        audio.write_bytes(b"fake-mp3")
+        monkeypatch.setenv("ASR_PROVIDER", "openai_compatible")
+        monkeypatch.setenv("ASR_API_KEY", "sk-test-fake")
+        monkeypatch.setattr(video.shutil, "which", lambda n: "/usr/bin/ffmpeg" if n == "ffmpeg" else None)
+        monkeypatch.setattr(asr_mod, "probe_duration", lambda p: None)
+        called = []
+        monkeypatch.setattr(video, "_run", lambda cmd, timeout: (called.append(cmd), (True, ""))[1])
+
+        r = fc.fetch(str(audio))
+        assert_contract(r)
+        assert r["status"] == "partial"
+        assert r["needs_confirmation"]
+        assert not called
+
+    def test_local_video_range_frames_seek_and_single_offset(self, cache_tmp, tmp_path, monkeypatch):
+        """本地视频带 --start/--end 抽帧必须传 -ss/-t 截断区间，且文件名时间戳只加一次 start_sec（P0-2）。"""
+        import asr as asr_mod
+
+        clip = tmp_path / "talk.mp4"
+        clip.write_bytes(b"fake-mp4")
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(video.shutil, "which", lambda n: "/usr/bin/ffmpeg" if n == "ffmpeg" else None)
+        monkeypatch.setattr(asr_mod, "probe_duration", lambda p: 1800.0)
+        monkeypatch.setattr(asr_mod, "transcribe_file", lambda wav, offset_sec=0.0: {
+            "ok": True, "partial": False, "segments": [(offset_sec + 5.0, offset_sec + 10.0, "区间内容")]
+        })
+
+        seen_cmds: list[list[str]] = []
+
+        def fake_run(cmd, timeout):
+            seen_cmds.append(list(cmd))
+            out = Path(cmd[-1])
+            if out.suffix == ".wav":
+                out.write_bytes(b"RIFFfakewav")
+                return True, ""
+            if "scene_%04d.jpg" in str(out):
+                (out.parent / "scene_0001.jpg").write_bytes(JPEG_FRAME)
+                return True, "pts_time:50.0"
+            return True, ""
+
+        monkeypatch.setattr(video, "_run", fake_run)
+        r = fc.fetch(str(clip), frames=True, start_sec=600.0, end_sec=900.0)
+        assert_contract(r)
+        assert r["status"] == "success"
+        # 600 + 50 = 650s，绝不是 1250s
+        assert len(r["keyframes"]) == 1
+        assert Path(r["keyframes"][0]).name == "frame_00650s.jpg"
+        scene_cmd = next(c for c in seen_cmds if "scene_%04d.jpg" in c[-1])
+        assert "-ss" in scene_cmd and "600.00" in scene_cmd
+        assert "-t" in scene_cmd and "300.00" in scene_cmd
+        # 音频切段采用 output seeking（-ss 在 -i 之后）
+        wav_cmd = next(c for c in seen_cmds if c[-1].endswith(".wav"))
+        assert wav_cmd.index("-i") < wav_cmd.index("-ss")
+
+    def test_missing_local_media_filename_never_treated_as_domain(self, monkeypatch):
+        """拼错或不存在的本地音视频文件名不得被当成域名发外网请求（P1-5）。"""
+        from extractors import base as base_mod
+
+        def forbid_http(*a, **k):
+            raise AssertionError("不应把本地文件名当域名发 HTTP 请求")
+
+        monkeypatch.setattr(base_mod, "http_get", forbid_http)
+        for sample in ("meeting.wav", "slides.mov", "C:/nonexistent/talk.mp3"):
+            r = fc.fetch(sample)
+            assert_contract(r)
+            assert r["status"] == "failed"
+            assert r["platform"] == "local"
+            assert r["error_reason"] == "not_found"
+
+    def test_default_video_extractor_extract_local_hits_cache(self, cache_tmp, tmp_path, monkeypatch):
+        """即便以默认 VideoExtractor() 调用 extract_local，二次调用也必须命中缓存（P1-12）。"""
+        import asr as asr_mod
+
+        audio = tmp_path / "memo.mp3"
+        audio.write_bytes(b"fake-mp3")
+        monkeypatch.setenv("ASR_PROVIDER", "local_whisper")
+        monkeypatch.setattr(video.shutil, "which", lambda n: "/usr/bin/ffmpeg" if n == "ffmpeg" else None)
+        monkeypatch.setattr(asr_mod, "probe_duration", lambda p: 60.0)
+        calls = 0
+
+        def fake_run(cmd, timeout):
+            Path(cmd[-1]).write_bytes(b"RIFFfakewav")
+            return True, ""
+
+        def fake_tr(wav, offset_sec=0.0):
+            nonlocal calls
+            calls += 1
+            return {"ok": True, "partial": False, "segments": [(0.0, 3.0, "纪要要点")]}
+
+        monkeypatch.setattr(video, "_run", fake_run)
+        monkeypatch.setattr(asr_mod, "transcribe_file", fake_tr)
+
+        ext = VideoExtractor()  # 默认 platform="web"
+        r1 = ext.extract_local(audio)
+        r2 = ext.extract_local(audio)
+        assert r1["status"] == "success" and r2["status"] == "success"
+        assert r1["platform"] == "local" and calls == 1

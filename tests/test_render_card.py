@@ -93,3 +93,61 @@ class TestRenderCard:
         assert proc.returncode == 0
         data = json.loads(proc.stdout)
         assert data["status"] == "failed"
+
+    def test_inline_code_and_rich_markdown_blocks(self):
+        """行内代码不被粗体破坏；表格、代码块、分割线、多行引用、嵌套列表正常渲染（P1-7）。"""
+        md = (
+            "## 一句话讲人话\n"
+            "> 第一行结论\n"
+            "> 第二行补充\n\n"
+            "---\n\n"
+            "测试行内 `code **not-bold**` 与 [**粗体链接**](https://example.com/a)。\n\n"
+            "| 项 | 数值 |\n"
+            "| :--- | :--- |\n"
+            "| 内存 | 95MB |\n\n"
+            "- 外层条目\n"
+            "  - 内层子条目\n\n"
+            "```python\n"
+            "# 这是代码注释，不应被切成标题\n"
+            "x = 1\n"
+            "y = 2\n"
+            "```\n"
+        )
+        doc, stats = rc.render_card_html(md, title="富文本测试")
+        assert "<code>code **not-bold**</code>" in doc
+        assert 'href="https://example.com/a"' in doc and "<strong>粗体链接</strong>" in doc
+        assert "<table><thead><tr><th>项</th><th>数值</th></tr></thead>" in doc
+        assert '<hr class="divider" />' in doc
+        assert "<pre " in doc and "# 这是代码注释，不应被切成标题\nx = 1\ny = 2" in doc
+        assert stats["sections"] == 1
+        assert doc.count("<blockquote") == 1
+        assert doc.count("<ul>") >= 2
+
+    def test_clean_example_not_misflagged_as_caution(self):
+        """干净样本里的“没有明显营销水分”和“未联网核查”不得误标为避坑项（P1-8）。"""
+        raw = (ROOT / "examples" / "05-clean-article-no-nitpick.md").read_text(encoding="utf-8")
+        body = raw.split("\n---\n", 1)[1].strip()
+        _, stats = rc.render_card_html(body, title="干净样本")
+        assert stats["caution_items"] == 0
+
+    def test_plain_paragraph_report_preserves_lead_in_filter_mode(self):
+        """无 H2 标题的自然段报告，首段应带 lead-item，避免筛选时被隐藏（P1-8）。"""
+        md = "首段直接给出结论与分界。\n\n第二段指出没有提到的关键盲区。"
+        doc, stats = rc.render_card_html(md, title="自然段样本")
+        assert "lead-item" in doc
+        assert stats["caution_items"] == 1
+
+    def test_cli_stdin_utf8_chinese_works(self, tmp_path):
+        out = tmp_path / "stdin_card.html"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "render_card.py"), "--output", str(out), "--title", "管道中文测试"],
+            input="## 一句话讲人话\n> 管道传入中文正文正常渲染。",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        assert proc.returncode == 0
+        data = json.loads(proc.stdout)
+        assert data["status"] == "success"
+        assert "管道传入中文正文正常渲染" in out.read_text(encoding="utf-8")

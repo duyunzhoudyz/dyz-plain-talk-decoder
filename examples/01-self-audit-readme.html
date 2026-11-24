@@ -141,8 +141,23 @@
     padding: 1px 5px;
     border-radius: 4px;
   }
+  pre {
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    background: var(--unv-bg);
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  pre code { background: transparent; padding: 0; }
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 0 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  th { background: var(--unv-bg); font-weight: 600; }
   a { color: var(--accent); word-break: break-all; }
-  body.filter-caution .card-section:not(.lead-section) .item[data-caution="false"] { display: none; }
+  body.filter-caution .card-section:not(.lead-section) .item[data-caution="false"]:not(.lead-item) { display: none; }
   body.filter-caution .card-section[data-has-caution="false"] { display: none; }
   footer {
     border-top: 1px solid var(--border);
@@ -163,10 +178,10 @@
     <header>
       <div class="brand">人话解码器 · PLAIN-TALK DECODER</div>
       <h1>自查本仓库 README.md</h1>
-      <div class="meta">生成日期：2026-11-22 · 来源：dyz-plain-talk-decoder/README.md · 标准版 · 平实直白 · 离线</div>
+      <div class="meta">生成日期：2026-11-23 · 来源：dyz-plain-talk-decoder/README.md · 标准版 · 平实直白 · 离线</div>
       <div class="toolbar">
         <button class="btn active" id="btnAll" type="button">看全文</button>
-        <button class="btn" id="btnCaution" type="button">只看存疑与避坑（3）</button>
+        <button class="btn" id="btnCaution" type="button">只看存疑与避坑（1）</button>
         <button class="btn" id="btnPrint" type="button">打印 / 存为 PDF</button>
       </div>
     </header>
@@ -179,12 +194,12 @@
 <li class="item" data-caution="false"><strong>对方重点让你看的</strong>：MIT 开源，纯贴文字不装 Python 或密钥就能用，抓链接、字幕、转写和抽帧都是可选增强。真实亮点在于主动交代边界：开头自称“中文文本 Beta 候选版”，写清了平台分级、云端转写自费、本地画像须经同意落盘，以及医疗、投资、法律不替人做决定。</li>
 <li class="item caution" data-caution="true"><strong>对方没有提到或一笔带过的</strong>：一，全文只列了提问示例和功能表，没放任何一组“原文对输出”的直观样板（仅附仓库验收文档链接），外人看不出成色。二，“推荐”与实测进度有落差：安装区把 <code>uv</code> 标为推荐、将 B 站列为优先维护，后文却承认 <code>uv</code> 未真机跑过、macOS/Linux 实装与多宿主自动触发未验证，B 站公开软字幕仍缺实网成功样本。三，没说明主要在哪些大模型上测过，换模型后效果会差多少。</li>
 </ul>
-</section><section class="card-section" data-has-caution="true">
+</section><section class="card-section" data-has-caution="false">
 <h2>核查与可信度</h2>
-<p class="item caution" data-caution="true">单机 Windows 跑通记录、YouTube 字幕两次耗时（6.5 秒与 16.5 秒）均属作者自述，未联网核查。材料自洽且敢写未验证项，算比较实在，但关键效果与适配信息仍缺位，综合可信度中等。</p>
-</section><section class="card-section" data-has-caution="true">
+<p class="item" data-caution="false">单机 Windows 跑通记录与 YouTube 字幕耗时（6.5 秒 / 16.5 秒）均为作者自述，未联网核查；材料自洽且敢写未验项，但效果与适配信息仍缺位。</p>
+</section><section class="card-section" data-has-caution="false">
 <h2>给你的建议</h2>
-<p class="item caution" data-caution="true">先别急着折腾抓取脚本，拿手头一篇难啃的广告或长文，直接贴正文试跑一次最省事。只想文字脱水，零配置就能验货；若冲着自动抓链接、拆 B 站或长视频来，建议先看仓库里的测试记录，再测自己的系统和常用模型能不能跑稳。</p>
+<p class="item" data-caution="false">先别折腾抓取脚本，拿手头一篇难啃的广告或长文贴正文试跑一次最省事。只想文字脱水，零配置即可验货；若冲着自动抓链接、拆 B 站或长视频来，建议先看仓库测试记录，再在自己系统和常用模型上实测。</p>
 </section>
     <footer>
       本卡片由 <code>dyz-plain-talk-decoder</code> 本地生成，基于可得证据分析，不构成医疗、投资或法律专业意见。

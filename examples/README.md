@@ -6,8 +6,8 @@
 
 | 样板文件 | 覆盖场景 | 你能看到什么 |
 | :--- | :--- | :--- |
-| [01-self-audit-readme.md](01-self-audit-readme.md) | **自查本仓库 README.md**（真实材料） | 不护短：承认零依赖与边界透明，同时指出“推荐 `uv` 却未实机验证”等落差；附[单页 HTML 分享卡](01-self-audit-readme.html) |
+| [01-self-audit-readme.md](01-self-audit-readme.md) | **自查本仓库早期 `README.md`**（真实历史快照） | 不护短：承认零依赖与边界透明，同时抓出当时“推荐 `uv` 却未实机验证”和缺样板的落差（当前 README 已据此整改）；附[单页 HTML 分享卡](01-self-audit-readme.html) |
 | [02-product-launch-and-promo.md](02-product-launch-and-promo.md) | 产品参数 + 预售催单混合稿 | 区分厂标极值与实测工况、识别“意向登记≠成交量”、给出到店试跑与书面追问清单 |
-| [03-prepaid-and-finance.md](03-prepaid-and-finance.md) | 消费预付卡 + 理财宣传（高风险边界） | 双端分界线前置；理财场景只评材料、列缺口与追问，不替人做买卖决定 |
+| [03-prepaid-and-finance.md](03-prepaid-and-finance.md) | 高风险金融理财宣传（边界护栏） | 识别“历史兑付率≠保本”、底部小字压风险；结合用户年底用钱时间指出流动性冲突，只评材料不替人决定买卖 |
 | [04-official-notice.md](04-official-notice.md) | 官方例会公报（极速版） | 不听床、不编内幕：直接交代办事哪里照旧、拆清套话字面含金量 |
 | [05-clean-article-no-nitpick.md](05-clean-article-no-nitpick.md) | 扎实的技术变更说明（干净样本） | **防尬黑演示**：材料本身扎实清楚时，直说“这篇基本实在”，不为了显得犀利硬凑槽点 |

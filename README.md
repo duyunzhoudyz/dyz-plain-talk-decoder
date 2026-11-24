@@ -42,8 +42,8 @@
 
 | 宿主 / 环境 | 安装方式 | 可用能力档位 |
 | :--- | :--- | :--- |
-| **Claude Code（推荐插件方式）** | 仓库根目录已提供 `.claude-plugin/marketplace.json` 与 `plugin.json`，发布到 GitHub 后可按 `/plugin marketplace add <owner>/<repo>` → `/plugin install dyz-plain-talk-decoder@dyz-plain-talk-decoder` 安装；本地手动安装可直接把 `dyz-plain-talk-decoder/` 复制到 `~/.claude/skills/`（全局）或项目 `.claude/skills/` | A 档（全能力） |
-| **Cursor / Codex / Windsurf / WorkBuddy 等本地助手** | 将 `dyz-plain-talk-decoder/` 复制到对应助手的技能目录（如 `~/.agents/skills/`、`~/.claude/skills/` 或项目 `.cursor/skills/`）；发布到 GitHub 后也支持 `npx skills add <owner>/<repo>` 自动发现 | A 档（全能力） |
+| **Claude Code（本地手动，已实测）** | 把整个 `dyz-plain-talk-decoder/` 目录复制到 `~/.claude/skills/`（全局）或项目 `.claude/skills/`；仓库根目录另提供 `.claude-plugin/marketplace.json` 与 `plugin.json`（插件市场安装路径已按规范备妥，待发布到 GitHub 后实测） | A 档（全能力） |
+| **Cursor / Codex / Windsurf / WorkBuddy 等本地助手** | 将 `dyz-plain-talk-decoder/` 复制到对应助手的技能目录（如 `~/.agents/skills/`、`~/.claude/skills/` 或项目 `.cursor/skills/`） | A 档（全能力） |
 | **Qoder / 对话版 Claude 等支持导入 zip 的助手** | 把 `dyz-plain-talk-decoder/` 目录打包为 zip，在助手的技能设置里导入 | B/C 档（无本地脚本时自动降级，粘贴正文照常使用） |
 | **任意纯对话助手（无技能机制）** | 直接粘贴正文并附上 `SKILL.md` 与对应 `references/` 规则即可 | B/C 档 |
 
@@ -53,23 +53,10 @@
 
 只贴文字的话，这一步可以完全跳过。想让助手直接读链接，以下两种方式二选一：
 
-**方式 A：用 `uv` 零配置免虚拟环境（推荐，不用手动 `pip install`）**
-
-1. 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)；
-2. 三个入口脚本均已内置 PEP 723 依赖声明，直接运行即可自动按需解析基础依赖：
-
-   ```bash
-   cd dyz-plain-talk-decoder
-   uv run scripts/check_env.py
-   uv run scripts/fetch_content.py "https://example.com/article"
-   ```
-
-   （视频字幕可临时追加 `uv run --with yt-dlp scripts/fetch_content.py "<视频链接>"`。）
-
-**方式 B：传统 Python + pip**
+**方式 A：传统 Python + pip（已实测，适合同时开启视频与 ASR 可选依赖）**
 
 1. 安装 [Python 3.10 或更新版本](https://www.python.org/downloads/)（Windows 安装时勾选 “Add to PATH”）；
-2. 在技能目录下安装基础依赖：
+2. 在技能目录下安装基础依赖（建议在虚拟环境中安装）：
 
    ```bash
    cd dyz-plain-talk-decoder
@@ -81,6 +68,19 @@
    ```bash
    python scripts/check_env.py
    ```
+
+**方式 B：用 `uv` 免虚拟环境试跑（实验性，已写 PEP 723 头与 CI 冒烟，待远端实跑）**
+
+1. 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)；
+2. 五个入口脚本（`fetch_content.py`、`check_env.py`、`cleanup_cache.py`、`lint_report.py`、`render_card.py`）均已内置 PEP 723 依赖声明，可直接运行：
+
+   ```bash
+   cd dyz-plain-talk-decoder
+   uv run scripts/check_env.py
+   uv run scripts/fetch_content.py "https://example.com/article"
+   ```
+
+   注意：`uv run` 在隔离环境中执行，**不会读取你在别的环境里用 `pip install` 装的可选包**。若要通过 `uv run` 使用视频字幕或 ASR，需显式追加依赖（例如 `uv run --with yt-dlp scripts/fetch_content.py "<视频链接>"` 或 `--with yt-dlp --with openai`）；若计划长期用视频/ASR，优先选方式 A。
 
 视频和语音转文字是额外的可选能力，见下一节。
 
