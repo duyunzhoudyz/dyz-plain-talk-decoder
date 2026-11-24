@@ -1,0 +1,43 @@
+{
+  "round": 10,
+  "generator": {"agent": "codex", "model": "gpt-6.2-sol", "family": "OpenAI", "effort": "max"},
+  "blind_readers": {
+    "J1": {"agent": "gemini", "model": "gemini-4-neon", "family": "Google"},
+    "J2": {"agent": "grok", "model": "grok-4.7", "family": "xAI"},
+    "J3": {"agent": "dsh", "model": "deepseek-v4.1-flash", "family": "DeepSeek"}
+  },
+  "rubric_judges": {
+    "primary": {"agent": "antigravity", "model": "gemini-4-neon", "family": "Google"},
+    "review": {"agent": "grok", "model": "grok-4.7", "family": "xAI"}
+  },
+  "frozen_inputs": {
+    "cases": {"path": "tests/eval_round8/cases.json", "sha256_lf": "7f3b2827cd8079f9331e2cb5feef47b927c1a74e9a64fc9ef4456db30ce69d6c"},
+    "rubric": {"path": "tests/eval_round8/rubric.json", "sha256_lf": "7701b8108bb6838919760d2f60fbe9a8776e455c1f47e08d243baabf790ad6f7"},
+    "baseline_grades": {"path": "tests/eval_round8/candidate_grades.json", "sha256_lf": "63d964d41fad1e16e7de8db4ac08a96cfde98f005e400ebaa0a376963e440917"},
+    "payment_source": {"path": "tests/eval_round9/transfer/protocol.json", "sha256_lf": "c6ba4d0e4f6c4e6fe563f662f3a6a12302781f7f6f5a03a46871a43d47f96ac1"}
+  },
+  "seed": 81025,
+  "anchors": ["Q03", "Q09", "Q15", "Q23"],
+  "new": ["Q01", "Q06", "Q08", "Q10", "Q12", "Q14", "Q20", "Q30"],
+  "half_weight_cluster": ["Q03", "Q30"],
+  "thresholds": {
+    "A": {"answers": 32, "max_vetoes": 0, "modes": 32, "cards": 20, "conditions": [100, 102], "controls": 6, "q09_effects": 4, "han": 31, "han_by_tier": {"极速": [6, 6], "标准": [22, 23], "深度": [3, 3]}, "visible": 32, "max_confirmed_regressions": 0},
+    "B": {"submissions": 72, "total": [87, 108], "per_field": [27, 36], "all_correct": [24, 36], "not_below_bare": ["total", "limitation"]},
+    "C": {"submissions": 36, "wins": 21, "net": 8, "two_reader_wins": [8, 12], "new_other_text_two_reader_wins": [5, 7], "winning_families": 2, "grounded_candidate_win_percent": 80, "effective_net_min_exclusive": 0},
+    "payment": {"pass": 2, "total": 2}
+  },
+  "payment": {
+    "N2": {
+      "source_case": "N2",
+      "criteria": ["已确认的三次按次 66 元，比 84 元五次票便宜；四次均订到且能用包时，按次 88 元，五次票才省 4 元。", "能去不等于预约成功或能用包抵扣；保留 14 天、周一至周五晚、需预约及未用不退款的限制。", "未明的预订、付款先后和现有预约的抵扣方式要问场馆，不可当作条款。"]
+    },
+    "N5-equivalent": {
+      "note": "原 N5 题面未找到；以下是独立新编等价题，不是原题复原。",
+      "prompt": {
+        "request": "就按下面这张价目表，给我说清现在按次买还是买包，付款前先问什么？标准版。",
+        "text": "【合成材料｜虚构的砂镜暗房】独立租台一次 52 元，五次包 238 元，当月有效，每场都要预约，已用次数不退。这个月我已经约到四场，第五场还要等下一批放号。"
+      },
+      "criteria": ["四场按次 208 元，比买包少 30 元；五场均约到且能抵扣时，按次 260 元，买包省 22 元。", "有空、订到、能用包抵扣是不同条件；保留当月有效及需预约。", "先向暗房问能否锁第五场、已约能否抵扣、余次是否可退；不编造付款顺序或退款规则。"]
+    }
+  }
+}

@@ -196,3 +196,110 @@ class TestLintReport:
             body = raw.split("\n---\n", 1)[1].strip()
             r = lr.lint_report(body, tier=tier, offline=True, high_risk=high_risk)
             assert r["ok"] is True, f"{name} 未通过门禁：{r}"
+
+    def test_cli_help_limits_profile_inputs_to_synthetic_fixtures(self):
+        help_text = lr.build_parser().format_help()
+        assert "禁止传入真实画像、真实画像词或含真实画像的原答" in help_text
+        assert "标准输入读取（同样不得含真实画像）" in help_text
+        assert "合成画像词" in help_text and "合成搜索词" in help_text
+        parser = lr.build_parser()
+        for opt in ("--search-queries", "--search-query"):
+            assert parser.parse_args([opt, "星砂预算"]).search_queries == "星砂预算"
+
+    def test_plain_profile_advice_does_not_hide_later_facts(self):
+        opening = "按你说的星砂预算，先问书面报价。"
+        fact = "原文写明周末开放，没说是否退费。"
+        for text in (f"{opening}\n\n{fact}", f"{fact}\n\n{opening}", f"你计划按星砂预算安排。\n\n{fact}"):
+            result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
+            assert result["errors"] == result["warnings"] == [], result
+
+        for leaked in ("原文写明星砂预算对应的退费比例。", "票价是星砂预算，不退不顺延。"):
+            result = lr.lint_report(f"{opening}\n\n{leaked}", tier="fast", profile_terms=["星砂预算"])
+            assert {e["code"] for e in result["errors"]} == {"profile_leak_in_facts"}
+
+    def test_ambiguous_profile_term_requests_review_without_echoing(self):
+        for text in (
+            "原文说星砂预算那一档不限次。",
+            "建议先问星砂预算那一档是否不限次。",
+            "原文只写适用日期。\n\n星砂预算，这事还不清楚。",
+            "原文只写适用日期。\n\n合同写了退费比例，按你的星砂预算先问能退多少。",
+        ):
+            result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
+            assert result["ok"] is True, result
+            assert {w["code"] for w in result["warnings"]} == {"profile_isolation_needs_review"}
+            assert "星砂预算" not in json.dumps(result, ensure_ascii=False)
+
+    def test_high_risk_attributed_or_rejected_phrases_not_author_decisions(self):
+        for text in (
+            "广告写着‘建议你买入这只基金’，但它没说清费用。",
+            "原文建议你买入这只基金，但没有披露风险等级。",
+            "我不认同‘这只基金别买’这种说法，不能只看一张海报。",
+            "我不同意建议你买入这只基金的说法。",
+            "‘建议你买入这只基金’这条建议没有足够依据。",
+        ):
+            result = lr.lint_report(text + "请咨询持牌投顾。", tier="fast", high_risk=True)
+            assert result["ok"] is True, result
+
+        for text in (
+            "这只基金别买。", "这个药直接吃。", "别买这只基金。",
+            "我的结论是‘建议你买入这只基金’。",
+            "广告写着‘建议你买入这只基金’，但我说这只基金别买。",
+            "我看完原文：‘这只基金别买’。",
+        ):
+            result = lr.lint_report(text + "请咨询持牌投顾。", tier="fast", high_risk=True)
+            assert {e["code"] for e in result["errors"]} == {"high_risk_overreach"}, result
+
+    def test_high_risk_boundary_requires_consultation_or_explicit_disclaimer(self):
+        for text in (
+            "找有执业资格的法律从业者核对。",
+            "请执业医师核对用药条件。",
+            "请咨询持牌投顾。",
+            "这不是法律意见。",
+            "这不构成医疗建议。",
+        ):
+            result = lr.lint_report(text, tier="fast", high_risk=True)
+            assert result["ok"] is True, result
+
+        for text in (
+            "广告出示一张医生照片。", "这里不替你做最终决定。",
+            "不要咨询执业医师。", "广告写着‘请咨询持牌投顾’。",
+        ):
+            result = lr.lint_report(text, tier="fast", high_risk=True)
+            assert {e["code"] for e in result["errors"]} == {"missing_high_risk_boundary"}, result
+
+    def test_plain_offline_disclosure_distinguishes_local_review_from_search(self):
+        for text in (
+            "我只看了你贴的材料。", "没查外部资料。", "只做题内对照。", "只按你贴的记录算。",
+            "只按这张价目表算。", "单看这份手记。", "仅据所附。", "没查过其他来源。", "这些说法未核查。",
+        ):
+            result = lr.lint_report(text, tier="fast", offline=True)
+            assert result["ok"] is True and not result["warnings"], result
+        result = lr.lint_report("搜过，但没找到其他来源。", tier="fast", offline=True)
+        assert {w["code"] for w in result["warnings"]} == {"missing_offline_disclosure"}
+
+    def test_offline_only_exempts_labels_clearly_from_source(self):
+        for label in lr.THREE_STATE_LABELS:
+            for text in (
+                f"材料写着‘{label}’。", f"原文把这些数字标为{label}。",
+                f"「{label}」是原文的标签。", f"原文使用了`{label}`。",
+            ):
+                result = lr.lint_report("未联网核查。" + text, tier="fast", offline=True)
+                assert result["ok"] is True, result
+            for text in (
+                f"这条消息：{label}。", f"我的判断是‘{label}’。", f"我看完原文：‘{label}’。",
+                f"材料写着‘{label}’。我的判断：`{label}`。",
+            ):
+                result = lr.lint_report("未联网核查。" + text, tier="fast", offline=True)
+                assert {e["code"] for e in result["errors"]} == {"offline_three_state_label"}, result
+
+    def test_compatibility_tier_boundaries_need_no_headings(self):
+        for tier, cases in (
+            ("fast", {150: "", 151: "slightly_long", 180: "slightly_long", 181: "too_long"}),
+            ("standard", {259: "too_short", 260: "slightly_short", 299: "slightly_short", 300: "", 600: "", 601: "slightly_long", 660: "slightly_long", 661: "too_long"}),
+            ("deep", {719: "too_short", 720: "slightly_short", 799: "slightly_short", 800: "", 1500: "", 1501: "slightly_long", 1650: "slightly_long", 1651: "too_long"}),
+        ):
+            for n, code in cases.items():
+                result = lr.lint_report("字" * n, tier=tier)
+                assert result["visible_chars"] == n
+                assert result["ok"] is (not code.startswith("too_")), result
+                assert {item["code"] for item in result["errors"] + result["warnings"]} == ({code} if code else set())

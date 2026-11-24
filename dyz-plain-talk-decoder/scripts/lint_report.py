@@ -14,7 +14,11 @@
 2. 离线模式下是否误打联网三态标签（[已核实] / [存疑/有出入] / [未证实/单方说法]）；
 3. 高风险领域（医疗/投资/法律）是否越界替用户做最终决定，以及是否包含专业边界提示；
 4. 是否向用户泄露内部术语（如 M2/S2、按消费销售拆、通用五问、场景卡）；
-5. 若传入画像私有词（--profile-terms），检查是否泄露到搜索词（--search-queries）或事实/核查分节。
+5. 仅用合成夹具的画像词（--profile-terms）和搜索词（--search-queries / --search-query）检查是否串入搜索词或事实段。
+
+禁止向脚本传入真实画像、真实画像词或含真实画像的原答（包括通过 --file 或标准输入）。
+有真实画像的报告请在宿主按手册自检；脚本只检查无真实画像的文本或已脱敏片段，不把片段当全文。
+`ok` 仅表示未触发确定性错误，不代替语义复核。
 
 约定（AGENTS.md 第 7 节）：
 - 标准输出只打印一份 UTF-8 JSON，退出码恒为 0；成败由 `ok` 字段表达。
@@ -52,29 +56,71 @@ OFFLINE_ACK_HINTS = (
     "仅据所贴",
     "仅据原文",
     "仅据材料",
+    "没查外部",
+    "没有查外部",
+    "未查外部",
+    "没外查",
+    "未外查",
+    "只看了你贴的",
+    "只看你贴的",
+    "只按你贴的",
+    "只按这张",
+    "单看这份",
+    "没查过",
+    "只对照了你贴的",
+    "只做题内对照",
+    "只做了题内对照",
 )
 
 # 高风险领域的明确越界决策表述（分句级排除否定前缀，如“绝不建议/也不推荐直接服用”不误杀）
+INVESTMENT = r"(?:基金|股票|理财|保险)"
+INVESTMENT_ACTION = r"(?:买入|入手|购买|买|重仓|加仓|抛售|卖出)"
+INVESTMENT_DIRECTIVE = r"(?:(?:建议|推荐|可以|直接|值得)(?:你)?)"
+TREATMENT_DIRECTIVE = r"(?:可以放心|直接|建议你|推荐你)"
+TREATMENT_ACTION = r"(?:服用|吃|停用|停吃)"
 HIGH_RISK_OVERREACH_PATTERNS = [
-    re.compile(r"(?:建议|推荐|可以|直接|值得)(?:你)?(?:买入|入手|购买|买|重仓|加仓|抛售|卖出)(?:这只|这款|该|这个)?(?:基金|股票|理财|保险|产品)"),
-    re.compile(r"(?:别买|不要买|千万别买)(?:这只|这款|该|这个)(?:基金|股票|理财|保险)"),
-    re.compile(r"(?:可以放心|直接|建议你|推荐你)(?:服用|吃|停用|停吃)(?:这个|这种|该)?药"),
+    re.compile(rf"{INVESTMENT_DIRECTIVE}{INVESTMENT_ACTION}(?:这只|这款|该|这个)?(?:{INVESTMENT}|产品)"),
+    re.compile(rf"(?:千万)?(?:别买|不要买)(?:这只|这款|该|这个){INVESTMENT}"),
+    re.compile(rf"{TREATMENT_DIRECTIVE}{TREATMENT_ACTION}(?:这个|这种|该)?药"),
+    re.compile(rf"(?:这只|这款|该|这个){INVESTMENT}\s*[，,]?\s*(?:{INVESTMENT_DIRECTIVE}{INVESTMENT_ACTION}|(?:千万)?(?:别买|不要买))"),
+    re.compile(rf"(?:这个|这种|该)药\s*[，,]?\s*{TREATMENT_DIRECTIVE}{TREATMENT_ACTION}"),
     re.compile(r"(?:可以放心签|直接签吧|赶紧签|千万别签这份合同)"),
 ]
-CLAUSE_NEGATION_RE = re.compile(r"(?:绝不|切勿|不要|不能|不可|不必|无需|不建议|不推荐|也不|并不|别|勿|不)(?:推荐|建议|鼓励|主张|替你)?$")
+CLAUSE_BREAK_RE = re.compile(r"[\n。！？；，,;.!?]")
+CLAUSE_NEGATION_RE = re.compile(r"(?:绝不|切勿|不要|不能|不可|不必|无需|不用|也不|并不|别|勿|不)(?:(?:推荐|建议|鼓励|主张)你?|替你)?\s*$")
+PROFESSIONAL = (
+    r"(?:(?:(?:有|具备)执业资格的|有资质的|合格的)?(?:执业)?(?:医生|医师|药师|律师|法律从业者)|"
+    r"持牌(?:理财顾问|投资顾问|投顾|顾问|专业人士)|理财顾问|投资顾问|专业人士)"
+    r"(?!照片|画像)"
+)
+HIGH_RISK_BOUNDARY_RE = re.compile(
+    rf"(?:咨询|请教|询问|求助于|问问?)\s*{PROFESSIONAL}|"
+    rf"(?:找|请|向|让|跟|和|与|由)\s*{PROFESSIONAL}[^。！？；，,;\n]{{0,12}}(?:核对|复核|确认|评估|咨询|把关|审阅|问清)|"
+    r"(?:不构成|不是|不(?:能)?代替)(?:专业|投资|理财|医疗|用药|法律)(?:建议|意见|诊断)"
+)
 
-HIGH_RISK_BOUNDARY_HINTS = (
-    "持牌",
-    "医生",
-    "医师",
-    "律师",
-    "专业人士",
-    "顾问",
-    "不是法律意见",
-    "不构成投资建议",
-    "不构成医疗建议",
-    "不替你做最终决定",
-    "不代替专业",
+SOURCE = r"(?:原文|原帖|材料|文案|文章|报道|海报|宣传(?:页|文案)?|广告(?:页|文案)?|商家|销售方|对方|作者)"
+SOURCE_ATTRIBUTION_RE = re.compile(
+    rf"(?:(?:^|[\n。！？；，,;.!?])\s*{SOURCE}(?:原话|原句)?\s*[:：]|"
+    rf"{SOURCE}(?:里|中)?(?:原话|原句)?(?:明确|还|也)?"
+    r"(?:写(?:着|道|的是|有)?|说(?:道|的是)?|称|声称|宣称|原话是|是|"
+    r"(?:把|将)[^。！？；，,;\n]{1,24}标(?:注|记)?(?:为|成)|标(?:注|记)?(?:为|成|着|了)?|"
+    r"(?:的)?(?:标签|标注)(?:是|为)?|(?:使)?用了?|引用了?)\s*[:：]?|(?:原文|原帖)(?:里|中)?的)\s*(?:>\s*)?$"
+)
+SOURCE_ATTRIBUTION_AFTER_RE = re.compile(
+    rf"^\s*(?:[，,]\s*)?(?:这(?:句话|句|个标签|个标注))?(?:来自|出自|是){SOURCE}(?:的)?(?:原话|原句|标签|标注)"
+)
+QUOTED_FRAGMENT_RE = re.compile(
+    r'''“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』|"[^"\n]*"|'[^'\n]*'|`[^`\n]*`|'''
+    + "|".join(map(re.escape, THREE_STATE_LABELS))
+)
+REJECTION_BEFORE_RE = re.compile(
+    r"(?:不(?:认同|同意|认可|支持|接受|采纳|建议|赞同)|反对|驳回|"
+    r"(?:不能|不应|不要|别)(?:据此)?(?:把|说成|采纳|接受|得出|下结论说))\s*[:：]?\s*$"
+)
+REJECTION_AFTER_RE = re.compile(
+    r"^\s*(?:[，,]\s*)?(?:这(?:句话|个建议|条建议|种说法))?(?:并)?"
+    r"(?:站不住脚|没有(?:足够)?依据|缺乏依据|不(?:成立|靠谱|可信|可取)|不能(?:作为|当作)(?:结论|建议|依据))"
 )
 
 # 面向用户的输出不应暴露的内部工作流术语（精准匹配内部词，避免误报 Apple M2 芯片、货币 M1/M2）
@@ -88,8 +134,20 @@ INTERNAL_JARGON_PATTERNS = [
     re.compile(r"(?<![A-Za-z0-9])S[1-5]\s*(?:卡|场景)"),
 ]
 
-ADVICE_SECTION_HEADING = re.compile(r"^#{1,3}\s*(给你的建议|结论与下一步|建议)", re.MULTILINE)
-PERSONAL_ADVICE_CUE = re.compile(r"(按你说|结合你|按你的|根据你的|给你的建议|下一步|先问|先别急着买)")
+ADVICE_SECTION_HEADING = re.compile(r"^(?:给你的建议|结论与下一步|建议|下一步)")
+FACT_SECTION_HEADING = re.compile(r"^(?:事实|核查|可信度|滤镜拆解|潜台词|原文要点)")
+FACT_CUE = re.compile(
+    r"(?:^|[，,])\s*[*_> -]*(?:事实(?:上|是|[:：])|(?:核查|原文)[:：]|"
+    r"(?:原文|原帖|材料|文案|文章|报道|海报|宣传页|广告|商家|合同|公告|条款|价目表|记录|厂标|票面|退款规则)"
+    r"[^，,:：]{0,14}(?:写|称|说|显示|交代|提到|列出|给出|标明|注明|意味着|只是|并非|不等于|未公布|未披露)|"
+    r"(?:票价|售价|有效期|门槛|单次票|按次票|月卡|次卡|名额)(?:是|为|仅限|须|需|不退|[^，,:：]{0,8}元))"
+)
+PERSONAL_LEAD = re.compile(r"^\s*[*_> -]*(?:按你说|结合你|按你的|根据你的|考虑到你|针对你|你计划)")
+ADVICE_CUE = re.compile(
+    r"(?:^|[，,])\s*[*_> -]*(?:给你的建议|下一步|建议(?:你|先|[:：])|"
+    r"(?:先|不妨)(?:问|别急|要|查|核对|确认|拿|等|看|试|向|把|做)|"
+    r"(?:按你说|结合你|按你的|根据你的|考虑到你|针对你|你计划).*?(?:建议|可以|不妨|先(?:问|别|不|要|查|看|试)))"
+)
 
 
 def count_visible_chars(markdown_text: str) -> tuple[int, int]:
@@ -112,21 +170,52 @@ def count_visible_chars(markdown_text: str) -> tuple[int, int]:
     return len(visible), len(hanzi)
 
 
-def _split_fact_part(text: str) -> str:
-    """提取建议部分之前的事实/拆解正文，同时支持带 H2 标题的报告与无 H2 自然段报告。"""
-    m = ADVICE_SECTION_HEADING.search(text)
-    if m:
-        return text[: m.start()].strip()
-    # 无 H2 自然段报告（如写法 A/B）：按空行拆段，末段或明确含个人建议引导的段视为建议段，其之前为事实段
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
-    if len(paragraphs) < 2:
-        return ""
-    fact_paras: list[str] = []
-    for idx, para in enumerate(paragraphs[:-1]):
-        if idx > 0 and PERSONAL_ADVICE_CUE.search(para) and ("按你说" in para or "结合你" in para or "按你的" in para):
-            break
-        fact_paras.append(para)
-    return "\n\n".join(fact_paras)
+def _author_text(report: str, *, skip_rejections: bool = False) -> str:
+    """只屏蔽明确归属于原文的引述；高风险判定另放行明确驳回的说法。"""
+    def omit(match: re.Match[str]) -> str:
+        before, after = report[:match.start()], report[match.end():]
+        if SOURCE_ATTRIBUTION_RE.search(before) or SOURCE_ATTRIBUTION_AFTER_RE.match(after):
+            return "。"
+        if skip_rejections and (REJECTION_BEFORE_RE.search(before) or REJECTION_AFTER_RE.match(after)):
+            return "。"
+        return match.group(0)
+
+    return QUOTED_FRAGMENT_RE.sub(omit, report)
+
+
+def _profile_hits(text: str, terms: list[str]) -> tuple[set[str], set[str]]:
+    """区分明确事实命中与需复核的合成画像词。"""
+    paragraphs = re.split(r"\n\s*\n|\n(?=#{1,6}[ \t])", text)
+    facts: set[str] = set()
+    review: set[str] = set()
+    section = ""
+    for paragraph in paragraphs:
+        heading = re.match(r"^#{1,6}[ \t]+([^\n]+)", paragraph)
+        if heading:
+            title = heading.group(1)
+            section = (
+                "facts" if FACT_SECTION_HEADING.match(title) else
+                "advice" if ADVICE_SECTION_HEADING.match(title) else ""
+            )
+        hits = {term for term in terms if term in paragraph}
+        if not hits or section == "advice":
+            continue
+        if section == "facts":
+            facts.update(hits)
+            continue
+        if len(paragraphs) == 1:
+            review.update(hits)
+            continue
+
+        # 同段泛用开场不覆盖后续事实；同一句混合线索时交人工复核。
+        sentences = re.split(r"[。！？；;\n]", paragraph)
+        for term in hits:
+            containing = [sentence for sentence in sentences if term in sentence]
+            if any(FACT_CUE.search(s) and not ADVICE_CUE.search(s) for s in containing):
+                facts.add(term)
+            elif not containing or any(FACT_CUE.search(s) or not (ADVICE_CUE.search(s) or PERSONAL_LEAD.search(s)) for s in containing):
+                review.add(term)
+    return facts, review
 
 
 def lint_report(
@@ -138,7 +227,7 @@ def lint_report(
     profile_terms: Optional[list[str]] = None,
     search_queries: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """对解码报告执行确定性自检。返回结构化结果字典。"""
+    """对不含真实画像的报告执行自检；画像词和搜索词参数仅用于合成夹具。"""
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     report = (text or "").strip()
@@ -180,13 +269,14 @@ def lint_report(
 
     # 2. 离线模式核查纪律
     if offline:
-        hit_labels = [lbl for lbl in THREE_STATE_LABELS if lbl in report]
+        author_report = _author_text(report)
+        hit_labels = [lbl for lbl in THREE_STATE_LABELS if lbl in author_report]
         if hit_labels:
             errors.append({
                 "code": "offline_three_state_label",
                 "message": f"离线模式下禁止打联网三态标签：{'、'.join(hit_labels)}。",
             })
-        if not any(hint in report for hint in OFFLINE_ACK_HINTS):
+        if not any(hint in author_report for hint in OFFLINE_ACK_HINTS):
             warnings.append({
                 "code": "missing_offline_disclosure",
                 "message": "离线报告未说明“未联网核查”或“仅据原文/所贴材料”。",
@@ -194,18 +284,17 @@ def lint_report(
 
     # 3. 高风险边界（医疗、投资理财、法律）
     if high_risk:
+        risk_report = _author_text(report, skip_rejections=True)
         overreach_hit = ""
         for pat in HIGH_RISK_OVERREACH_PATTERNS:
-            for m in pat.finditer(report):
-                # 取当前分句内命中点之前的短前缀，若为否定语境（如“绝不建议”“也不推荐直接服用”）则放行
-                clause_start = max(
-                    report.rfind(sep, 0, m.start()) + 1 for sep in ("\n", "。", "！", "？", "；", "，", ",", ";", ":")
-                )
-                prefix = report[clause_start : m.start()].strip()
-                if m.group(0).startswith(("别买", "不要买", "千万别买", "千万别签")):
-                    overreach_hit = m.group(0)
-                    break
-                if CLAUSE_NEGATION_RE.search(prefix):
+            for m in pat.finditer(risk_report):
+                prefix = CLAUSE_BREAK_RE.split(risk_report[:m.start()])[-1]
+                if (
+                    CLAUSE_NEGATION_RE.search(prefix)
+                    or SOURCE_ATTRIBUTION_RE.search(prefix)
+                    or REJECTION_BEFORE_RE.search(prefix)
+                    or (m.group(0).startswith(("建议", "推荐")) and re.fullmatch(rf"\s*{SOURCE}\s*", prefix))
+                ):
                     continue
                 overreach_hit = m.group(0)
                 break
@@ -215,7 +304,10 @@ def lint_report(
                     "message": f"高风险领域疑似替用户做最终决定：「{overreach_hit}」。",
                 })
                 break
-        if not any(hint in report for hint in HIGH_RISK_BOUNDARY_HINTS):
+        if not any(
+            not CLAUSE_NEGATION_RE.search(CLAUSE_BREAK_RE.split(risk_report[:m.start()])[-1])
+            for m in HIGH_RISK_BOUNDARY_RE.finditer(risk_report)
+        ):
             errors.append({
                 "code": "missing_high_risk_boundary",
                 "message": "高风险领域缺少咨询持牌专业人士或非专业意见边界提示。",
@@ -233,7 +325,7 @@ def lint_report(
             "message": f"面向用户的输出包含内部术语：{'、'.join(leaked_jargon)}。",
         })
 
-    # 5. 用户画像隔离校验（PRD E4）
+    # 5. 仅用合成夹具检查画像隔离（PRD E4）
     clean_terms = [t.strip() for t in (profile_terms or []) if t and t.strip()]
     if clean_terms:
         joined_queries = "\n".join(search_queries or [])
@@ -242,16 +334,19 @@ def lint_report(
             if leaked_in_search:
                 errors.append({
                     "code": "profile_leak_in_search",
-                    "message": f"用户画像信息泄露进联网搜索词（命中 {len(leaked_in_search)} 项）。",
+                    "message": f"合成画像词出现在搜索词中（命中 {len(leaked_in_search)} 项）。",
                 })
-        fact_part = _split_fact_part(report)
-        if fact_part:
-            leaked_in_facts = [t for t in clean_terms if t in fact_part]
-            if leaked_in_facts:
-                errors.append({
-                    "code": "profile_leak_in_facts",
-                    "message": f"用户画像信息出现在建议之前的事实/拆解部分（命中 {len(leaked_in_facts)} 项）。",
-                })
+        leaked_in_facts, needs_review = _profile_hits(report, clean_terms)
+        if leaked_in_facts:
+            errors.append({
+                "code": "profile_leak_in_facts",
+                "message": f"合成画像词出现在明确的事实/拆解部分（命中 {len(leaked_in_facts)} 项）。",
+            })
+        if needs_review:
+            warnings.append({
+                "code": "profile_isolation_needs_review",
+                "message": f"含合成画像词的片段无法明确区分事实和建议，需语义复核（命中 {len(needs_review)} 项）。",
+            })
 
     return {
         "ok": len(errors) == 0,
@@ -264,13 +359,15 @@ def lint_report(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="对解码报告做确定性自检并输出 JSON")
-    parser.add_argument("--file", default="", help="报告文件路径；留空则从标准输入读取")
+    parser = argparse.ArgumentParser(
+        description="对解码报告做确定性自检并输出 JSON。禁止传入真实画像、真实画像词或含真实画像的原答。",
+    )
+    parser.add_argument("--file", default="", help="不含真实画像的报告文件路径；留空则从标准输入读取（同样不得含真实画像）")
     parser.add_argument("--tier", choices=("fast", "standard", "deep"), default="standard", help="详略档位")
     parser.add_argument("--offline", action="store_true", help="离线模式（禁打联网三态标签）")
     parser.add_argument("--high-risk", action="store_true", help="涉及医疗/投资理财/法律高风险边界")
-    parser.add_argument("--profile-terms", default="", help="逗号分隔的画像私有检查词（仅本地校验，不输出原文）")
-    parser.add_argument("--search-queries", default="", help="逗号分隔的本次联网搜索词，用于校验画像零泄漏")
+    parser.add_argument("--profile-terms", default="", help="逗号分隔的合成画像词（仅用于合成夹具，不回显命中词）")
+    parser.add_argument("--search-queries", "--search-query", default="", help="逗号分隔的合成搜索词（仅用于合成夹具）")
     return parser
 
 
