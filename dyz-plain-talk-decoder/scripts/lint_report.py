@@ -61,15 +61,28 @@ OFFLINE_ACK_HINTS = (
     "未查外部",
     "没外查",
     "未外查",
-    "只看了你贴的",
-    "只看你贴的",
-    "只按你贴的",
-    "只按这张",
-    "单看这份",
+    "没另查",
+    "未另查",
     "没查过",
-    "只对照了你贴的",
     "只做题内对照",
     "只做了题内对照",
+)
+
+# 范围词要紧接材料或明确指代，不能捡到后面的材料名就算披露。
+_OFFLINE_THIS = r"这[份张条纸段篇则]"
+_OFFLINE_MATERIAL = (
+    r"(?:厂方|馆方|商家|产品|虚构|现有|上述)?"
+    r"(?:宣传(?:页|稿|单|文案)|销售页|介绍|价目表|公告|通知|通稿|公报|材料|原文|附文|记录|简报|告示|手记|随笔|帖[子文]?|"
+    r"合同|报价单|活动单|截图|资料|文字|内容|说明)"
+)
+OFFLINE_ACK_RE = re.compile(
+    r"(?<![不别])(?<!不[仅只单光])(?:"
+    rf"(?:[仅只单光][看按凭据](?:{_OFFLINE_THIS})?|[按就]{_OFFLINE_THIS}){_OFFLINE_MATERIAL}"
+    rf"|[仅只单光][看按凭据](?:所[贴附]|{_OFFLINE_THIS}(?=[，。；！？：,.!?;:\r\n]|$))"
+    r"|(?:[按就]|[仅只单光](?:[看按凭据]|对照)了?|[只都均]来自)你"
+    rf"(?:[贴附]的|给的(?:{_OFFLINE_THIS})?{_OFFLINE_MATERIAL})"
+    r"|(?:未|没)[作做]外部(?:查证|核查|核实|核对|核验)"
+    r")"
 )
 
 # 高风险领域的明确越界决策表述（分句级排除否定前缀，如“绝不建议/也不推荐直接服用”不误杀）
@@ -276,7 +289,7 @@ def lint_report(
                 "code": "offline_three_state_label",
                 "message": f"离线模式下禁止打联网三态标签：{'、'.join(hit_labels)}。",
             })
-        if not any(hint in author_report for hint in OFFLINE_ACK_HINTS):
+        if not (any(hint in author_report for hint in OFFLINE_ACK_HINTS) or OFFLINE_ACK_RE.search(author_report)):
             warnings.append({
                 "code": "missing_offline_disclosure",
                 "message": "离线报告未说明“未联网核查”或“仅据原文/所贴材料”。",

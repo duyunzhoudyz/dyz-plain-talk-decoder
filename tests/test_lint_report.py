@@ -61,7 +61,7 @@ class TestLintReport:
         assert any(e["code"] == "offline_three_state_label" for e in r["errors"])
 
     def test_offline_missing_disclosure_warns(self):
-        text = _make_standard_report().replace("未联网核查", "暂不展开")
+        text = _make_standard_report().replace("以上数字均来自你贴的推广页，未联网核查；", "")
         r = lr.lint_report(text, tier="standard", offline=True)
         assert r["ok"] is True
         assert any(w["code"] == "missing_offline_disclosure" for w in r["warnings"])
@@ -271,11 +271,38 @@ class TestLintReport:
         for text in (
             "我只看了你贴的材料。", "没查外部资料。", "只做题内对照。", "只按你贴的记录算。",
             "只按这张价目表算。", "单看这份手记。", "仅据所附。", "没查过其他来源。", "这些说法未核查。",
+            "单看这份公报，开放时间没变。", "仅按宣传页算，手续费共 90 元。", "只凭厂方介绍，日常续航还不确定。",
+            "只按你贴的内容看，退费条件没写清。", "按你附的两期公告，每天还是 20 个号。", "按你给的资料，排班时间没变。",
+            "只看这张价目表，五次起才省钱。", "按这纸通知，周三得提前预约。", "只看附文，两种说法对不上。",
+            "只看这段，退费条件没写清。", "就这篇虚构随笔里的自述，没计时。", "就你贴的招募看，每班 4 小时。",
+            "以上数字均来自你贴的推广页。", "这笔账未作外部查证。", "执行情况没另查。", "未另查门店报价。",
         ):
             result = lr.lint_report(text, tier="fast", offline=True)
-            assert result["ok"] is True and not result["warnings"], result
-        result = lr.lint_report("搜过，但没找到其他来源。", tier="fast", offline=True)
-        assert {w["code"] for w in result["warnings"]} == {"missing_offline_disclosure"}
+            assert result["ok"] is True and not result["warnings"], (text, result)
+        for text in (
+            "搜过，但没找到其他来源。", "五次起才省钱，没约到也不退款。", "价目表写了月卡不退、不顺延。",
+            "只看价格没法决定。宣传页没写退费条件。", "只看价格不能判断材料耐不耐用。", "按你给的预算，建议按次付。",
+            "场馆未作外部宣传。", "不只按这张价目表算，还参考了门店报价。", "材料写着“仅按宣传页算”。",
+        ):
+            result = lr.lint_report(text, tier="fast", offline=True)
+            assert result["ok"] is True, (text, result)
+            assert {w["code"] for w in result["warnings"]} == {"missing_offline_disclosure"}, (text, result)
+
+    def test_offline_natural_disclosure_does_not_bypass_hard_checks(self):
+        result = lr.lint_report(
+            "## 事实与拆解\n只看这份材料，星砂预算是3000元。[已核实] 建议你买入这只基金。",
+            tier="fast",
+            offline=True,
+            high_risk=True,
+            profile_terms=["星砂预算"],
+            search_queries=["基金 星砂预算"],
+        )
+        assert result["ok"] is False
+        assert {e["code"] for e in result["errors"]} == {
+            "offline_three_state_label", "high_risk_overreach", "missing_high_risk_boundary",
+            "profile_leak_in_search", "profile_leak_in_facts",
+        }
+        assert result["warnings"] == []
 
     def test_offline_only_exempts_labels_clearly_from_source(self):
         for label in lr.THREE_STATE_LABELS:
