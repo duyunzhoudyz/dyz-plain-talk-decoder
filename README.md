@@ -153,7 +153,7 @@ python -m pip install "faster-whisper>=1.0"
 
 - **Windows**：历史记录在同一台设备的新 Python 3.14 虚拟环境跑通过图文、YouTube 字幕和缺依赖降级；不等于所有 Windows 安装或真实宿主自动发现均通过。
 - **链接与视频**：有公开公众号、博客、YouTube 字幕、B站语音转写及百炼云端转写的历史成功记录，不代表今天的可用率。B站公开软字幕仍缺实网成功样本；YouTube 字幕两次为 6.5 秒与 16.5 秒，不承诺 10 秒内完成。
-- **未验证**：macOS / Linux 实装（已配置 GitHub Actions 三系统 × Python 3.10/3.12/3.14 CI，尚未推远端跑通）、`uv run` 实机执行（本机未装 `uv`，CI 已配冒烟）、多技能宿主自然触发、普通读者复述。截图和 PDF 取决于宿主读图读文件的能力，不额外承诺内置 OCR。模型试题与真人盲读入口见[本轮验收](tests/eval_round8/results.md)。
+- **未验证**：macOS / Linux 实机安装（未在真实环境验证；三系统 Ubuntu / macOS / Windows × Python 3.10 / 3.12 / 3.14 的离线测试已在 GitHub Actions 通过，但离线测试通过不等于在这两个系统上装过、用过）、`uv run` 实机执行（本机未装 `uv`，CI 已配冒烟）、多技能宿主自然触发、普通读者复述。截图和 PDF 取决于宿主读图读文件的能力，不额外承诺内置 OCR。模型试题与真人盲读入口见[本轮验收](tests/eval_round8/results.md)。
 
 ## 平台支持分级
 
