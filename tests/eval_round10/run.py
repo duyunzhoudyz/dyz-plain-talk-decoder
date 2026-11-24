@@ -28,6 +28,7 @@ FIELDS = ("conclusion", "limitation", "next_step")
 QUESTIONS = dict(zip(FIELDS, ("结论是什么？", "结论受什么条件限制？", "下一步具体做什么？")))
 CHOICES = ("A", "B", "tie", "none", "skip")
 REASONS = ("grounded", "unsubstantiated", "depends_on_error")
+SLOT_LAYOUTS = ("v1", "v2_shuffled")
 TIERS = {"极速": "fast", "标准": "standard", "深度": "deep"}
 STREAMS = {
     "recall": "recall", "recall_grades": "recall", "preference": "preference",
@@ -140,6 +141,11 @@ def directory_fingerprint(skill_dir: Path, paths: list[Path]) -> JSON:
     return {"count": len(files), "sha256_lf": digest(manifest.encode("utf-8")), "files": files}
 
 
+def protocol_snapshot(study: Study) -> JSON:
+    return {"round": study.protocol["round"], "protocol_sha256_lf": study.protocol_hash,
+            "frozen_inputs": study.protocol["frozen_inputs"]}
+
+
 def freeze_skill(study: Study, prompt_files: tuple[Path, Path] | None = None) -> JSON:
     skill = study.root / "dyz-plain-talk-decoder"
     paths = sorted(path for path in skill.rglob("*") if path.is_file() and path.suffix in {".md", ".py", ".txt"})
@@ -147,8 +153,7 @@ def freeze_skill(study: Study, prompt_files: tuple[Path, Path] | None = None) ->
     if len(manuals) != 15:
         raise ValueError(f"运行包应有 15 份 Markdown，实际 {len(manuals)} 份")
     snapshot = {
-        "round": study.protocol["round"], "protocol_sha256_lf": study.protocol_hash,
-        "frozen_inputs": study.protocol["frozen_inputs"],
+        **protocol_snapshot(study),
         "runtime": directory_fingerprint(skill, paths), "manuals": directory_fingerprint(skill, manuals),
     }
     if prompt_files is not None:
@@ -189,24 +194,44 @@ def answer_hashes(answers: Answers) -> JSON:
     return {arm: {qid: pair[1] for qid, pair in rows.items()} for arm, rows in answers.items()}
 
 
-def make_slots(study: Study, answers: Answers) -> Slots:
+def make_slots(study: Study, answers: Answers, slot_layout: str) -> Slots:
+    require(slot_layout in SLOT_LAYOUTS, "未知盲包布局 slot_layout")
     slots: Slots = []
     rng = random.Random(study.protocol["seed"])
     anchors, new = list(study.protocol["anchors"]), list(study.protocol["new"])
     rng.shuffle(anchors)
     rng.shuffle(new)
+    qids = anchors + new
+    positions = []
+    if slot_layout == "v2_shuffled":
+        require(len(study.protocol["blind_readers"]) == 3 and len(qids) == len(set(qids)) == 12,
+                "v2_shuffled 布局要求三席与 12 道不同题目")
+        # 每列恰为 2:1；六种列各重复两次，每席自然各有六次 A、B。
+        positions = ["AAB", "ABA", "BAA", "ABB", "BAB", "BBA"] * 2
+        while True:
+            rng.shuffle(positions)
+            if all(any(a == b for a, b in zip(order, order[1:])) for order in zip(*positions)):
+                break
     for j, reader in enumerate(study.protocol["blind_readers"]):
-        for i, qid in enumerate(anchors + new):
-            arms = ("candidate", "bare") if (i + j) % 2 == 0 else ("bare", "candidate")
+        recall: Slots = []
+        for i, qid in enumerate(qids):
+            side = positions[i][j] if positions else "AB"[(i + j) % 2]
+            arms = ("candidate", "bare") if side == "A" else ("bare", "candidate")
             for arm in arms:
-                slots.append((
+                (recall if positions else slots).append((
                     {"kind": "recall", "reader": reader, "qid": qid, "arm": arm},
                     {"answer": answers[arm][qid][0], "questions": QUESTIONS},
                 ))
             slots.append((
-                {"kind": "preference", "reader": reader, "qid": qid, "candidate_position": "AB"[arms.index("candidate")]},
+                {"kind": "preference", "reader": reader, "qid": qid, "candidate_position": side},
                 {"prompt": study.cases[qid], "answers": dict(zip("AB", (answers[arm][qid][0] for arm in arms)))},
             ))
+        if recall:
+            while True:
+                rng.shuffle(recall)
+                if all(a[0]["qid"] != b[0]["qid"] for a, b in zip(recall, recall[1:])):
+                    break
+            slots.extend(recall)
     rubric_order = [(arm, qid) for arm in ("candidate", "bare", "r8") for qid in answers.get(arm, {})]
     rng.shuffle(rubric_order)
     for arm, qid in rubric_order:
@@ -238,7 +263,8 @@ def pack_file(packs: Path, meta: JSON) -> Path:
     return packs / kind / f"{meta['assignment_id']}.json"
 
 
-def pack(study: Study, source: Path, packs: Path, map_out: Path, historical: Path | None = None, frozen: Path | None = None) -> JSON:
+def pack(study: Study, source: Path, packs: Path, map_out: Path, historical: Path | None = None,
+         frozen: Path | None = None, *, slot_layout: str = "v2_shuffled") -> JSON:
     packs = output_path(packs)
     map_out = output_path(map_out, packs)
     if packs.is_relative_to(map_out) or any(
@@ -260,7 +286,7 @@ def pack(study: Study, source: Path, packs: Path, map_out: Path, historical: Pat
     answers = load_answers(study, source, historical)
     files: dict[Path, str] = {}
     assignments = []
-    for slot, payload in make_slots(study, answers):
+    for slot, payload in make_slots(study, answers, slot_layout):
         assignment = uuid4().hex
         body = render({"assignment_id": assignment, **payload})
         meta = {"assignment_id": assignment, **slot, "pack_sha256": digest(body.encode("utf-8"))}
@@ -271,26 +297,34 @@ def pack(study: Study, source: Path, packs: Path, map_out: Path, historical: Pat
         write_new(path, files[path])
     write_new(map_out, render({
         "snapshot": snapshot, "pre_registered_snapshot": frozen is not None, "seal_location_sha256": seal_location_digest(map_out),
-        "historical": historical is not None, "answers_sha256": answer_hashes(answers), "assignments": assignments,
+        "slot_layout": slot_layout, "historical": historical is not None,
+        "answers_sha256": answer_hashes(answers), "assignments": assignments,
     }))
-    return {"ok": True, "counts": dict(Counter(meta["kind"] for meta in assignments)), "pre_registered_snapshot": frozen is not None}
+    return {"ok": True, "counts": dict(Counter(meta["kind"] for meta in assignments)),
+            "pre_registered_snapshot": frozen is not None, "slot_layout": slot_layout}
 
 
-def check_packs(study: Study, source: Path, packs: Path, map_path: Path, historical: Path | None) -> tuple[JSON, dict[str, tuple[JSON, JSON]], Answers, str]:
+def check_packs(study: Study, source: Path, packs: Path, map_path: Path, historical: Path | None, *,
+                sealed_map_hash: str | None = None) -> tuple[JSON, dict[str, tuple[JSON, JSON]], Answers, str]:
     if map_path.resolve().is_relative_to(packs.resolve()):
         raise ValueError("私有映射位于盲包目录，不能继续")
     raw_map = map_path.read_bytes()
+    map_hash = digest(raw_map)
     private = parse(raw_map)
     if private["seal_location_sha256"] != seal_location_digest(map_path):
         raise ValueError("私有映射已移动，不能另行封存同一批次")
-    if any(private["snapshot"].get(key) != value for key, value in freeze_skill(study).items()):
+    # 封存绑定当时的运行包指纹；揭盲复算不要求把当前 Skill 回滚到生成版本。
+    if sealed_map_hash is not None:
+        require(map_hash == sealed_map_hash, "映射已变，或与封存记录不符")
+    expected_snapshot = freeze_skill(study) if sealed_map_hash is None else protocol_snapshot(study)
+    if any(private["snapshot"].get(key) != value for key, value in expected_snapshot.items()):
         raise ValueError("运行文件或协议已变，不能继续使用这一批盲包")
     if historical is not None and not private["historical"]:
         raise ValueError("这一批没有历史臂")
     answers = load_answers(study, source, (historical or ARCHIVE) if private["historical"] else None)
     if private["answers_sha256"] != answer_hashes(answers):
         raise ValueError("首答字节已变，或历史对照路径与打包时不符")
-    slots = make_slots(study, answers)
+    slots = make_slots(study, answers, private.get("slot_layout", "v1"))
     if len(slots) != len(private["assignments"]):
         raise ValueError("私有映射分母不符")
     index = {}
@@ -316,7 +350,7 @@ def check_packs(study: Study, source: Path, packs: Path, map_path: Path, histori
               if (not path.is_dir() or path.is_symlink()) and path not in expected_paths]
     if extras or mismatches:
         raise ValueError("；".join(mismatches + [f"盲包目录包含额外文件：{name}" for name in sorted(extras)]))
-    return private, index, answers, digest(raw_map)
+    return private, index, answers, map_hash
 
 
 def require(condition: bool, message: str) -> None:
@@ -332,6 +366,17 @@ def exact(row: Any, fields: str) -> None:
     require(isinstance(row, dict) and row.keys() == set(fields.split()), f"字段必须为：{fields}")
 
 
+def read_actual_readers(study: Study, path: Path) -> tuple[JSON, str]:
+    raw = path.read_bytes()
+    readers = parse(raw)
+    exact(readers, " ".join(study.protocol["blind_readers"]))
+    for row in readers.values():
+        exact(row, "agent model family")
+        require(all(nonempty(value) and re.fullmatch(r"[\w./:+() -]{1,128}", value) for value in row.values()),
+                "实际通道只接受 agent/model/family 名称，不得填写密钥或其他信息")
+    return readers, digest(raw)
+
+
 def members(values: Any, allowed: Any) -> bool:
     return isinstance(values, list) and all(isinstance(v, str) and v in allowed for v in values) and len(set(values)) == len(values)
 
@@ -341,7 +386,9 @@ def bits(values: Any, size: int) -> bool:
 
 
 def check_quote(quote: Any, texts: list[str]) -> None:
-    require(nonempty(quote) and any(quote.replace("\r\n", "\n") in text.replace("\r\n", "\n") for text in texts),
+    require(isinstance(quote, str) and sum(ch.isprintable() and not ch.isspace() for ch in quote) >= 4,
+            "引句去除空白后至少需 4 个可见字符")
+    require(any(quote.replace("\r\n", "\n") in text.replace("\r\n", "\n") for text in texts),
             "引句未出现在指定原答（需逐字引用）")
 
 
@@ -460,13 +507,17 @@ def collect(study: Study, index: dict[str, tuple[JSON, JSON]], directory: Path) 
 
 
 def validate(study: Study, source: Path, packs: Path, map_path: Path, submissions: Path, historical: Path | None = None,
-             seal: bool = False, seal_incomplete: bool = False) -> JSON:
+             seal: bool = False, seal_incomplete: bool = False, *, actual_readers: Path | None = None) -> JSON:
     _, index, _, map_hash = check_packs(study, source, packs, map_path, historical)
+    reader_hash = read_actual_readers(study, actual_readers)[1] if actual_readers is not None else None
     _, state, hashes = collect(study, index, submissions)
     if seal and not state["errors"] and (state["ok"] or seal_incomplete):
         path = output_path(seal_path(map_path), packs)
         require(not path.is_relative_to(submissions.resolve()), "封存记录需放在提交目录外")
-        write_new(path, render({"map_sha256": map_hash, "submission_sha256": hashes, "complete": state["ok"]}))
+        record = {"map_sha256": map_hash, "submission_sha256": hashes, "complete": state["ok"]}
+        if reader_hash is not None:
+            record["actual_readers_sha256"] = reader_hash
+        write_new(path, render(record))
         state["sealed"] = True
     return state
 
@@ -597,14 +648,22 @@ def recall_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[
     return gate(checks), {"by_arm": arms, "cross_field": cross, "entries": detail}
 
 
-def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[str, dict[str, JSON]]) -> tuple[JSON, JSON]:
+def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[str, dict[str, JSON]],
+                      actual_readers: JSON | None = None) -> tuple[JSON, JSON]:
     c = study.protocol["thresholds"]["C"]
     readers = study.protocol["blind_readers"]
     cluster = set(study.protocol["half_weight_cluster"])
-    counts = {axis: {name: Counter(dict.fromkeys(("W", "L", "T", "none", "missing"), 0)) for name in names} for axis, names in (
-        ("overall", ["all"]), ("by_question", study.subset), ("by_family", [r["family"] for r in readers.values()]),
+    empty_tally = dict.fromkeys(("W", "L", "T", "none", "missing"), 0)
+    counts = {axis: {name: Counter(empty_tally) for name in names} for axis, names in (
+        ("overall", ["all"]), ("by_question", study.subset), ("by_slot_planned", [r["family"] for r in readers.values()]),
         ("by_group", ["anchors", "new"]), ("by_position", ["A", "B"]), ("same_text_cluster", ["half_weight", "other"]),
     )}
+    family_names: dict[str, str] = {}
+    actual_families = {}
+    for reader, row in (actual_readers or {}).items():
+        family = row["family"].strip()
+        actual_families[reader] = family_names.setdefault(family.casefold(), family)
+    actual_counts = {family: Counter(empty_tally) for family in family_names.values()}
     reasons = {outcome: Counter(dict.fromkeys((*REASONS, "missing"), 0)) for outcome in ("W", "L")}
     detail = []
     for key, (meta, _) in index.items():
@@ -620,7 +679,12 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
             axis[name][outcome] += 1
         if outcome in ("W", "L"):
             reasons[outcome][review["status"] if review else "missing"] += 1
-        detail.append({"qid": qid, "family": family, "candidate_position": position, "outcome": outcome, "original": vote, "reason_check": review})
+        entry = {"qid": qid, "reader": reader, "family_planned": family, "candidate_position": position,
+                 "outcome": outcome, "original": vote, "reason_check": review}
+        if actual_readers is not None:
+            entry["actual_family"] = actual_families[reader]
+            actual_counts[actual_families[reader]][outcome] += 1
+        detail.append(entry)
     totals = counts["overall"]["all"]
     wins, losses = totals["W"], totals["L"]
     two_wins = {qid for qid, tally in counts["by_question"].items() if tally["W"] >= 2}
@@ -632,35 +696,61 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
         "wins": metric(wins, c["wins"], c["submissions"]), "net": metric(wins - losses, c["net"]),
         "two_reader_wins": metric(len(two_wins), *c["two_reader_wins"]),
         "new_other_text_two_reader_wins": metric(len(two_wins.intersection(set(study.protocol["new"]) - cluster)), *c["new_other_text_two_reader_wins"]),
-        "winning_families": metric(sum(tally["W"] > tally["L"] for tally in counts["by_family"].values()), c["winning_families"], len(readers)),
+        "winning_families": metric(sum(tally["W"] > tally["L"] for tally in counts["by_slot_planned"].values()), c["winning_families"], len(readers)),
         "reason_checks": metric(reasons["W"]["missing"] + reasons["L"]["missing"], 0, op="="),
         "grounded_candidate_win_percent": {"actual": grounded_percent, "target": wanted_percent, "op": ">=", "total": None,
                                            "pass": wins > 0 and 100 * reasons["W"]["grounded"] >= wins * wanted_percent},
         "effective_net": metric(effective_net, c["effective_net_min_exclusive"], op=">"),
     }
+    planned_gate = gate(checks.copy())
+    if actual_readers is None:
+        checks["winning_families"] = {"actual": None, "target": c["winning_families"], "op": ">=", "total": None, "pass": False}
+    else:
+        generator = study.protocol["generator"]["family"].strip().casefold()
+        counts["by_actual_family"] = actual_counts
+        strict = counts["strict_non_generator_families"] = {
+            family: tally for family, tally in actual_counts.items() if family.casefold() != generator
+        }
+        checks["winning_families"] = metric(sum(tally["W"] > tally["L"] for tally in strict.values()), c["winning_families"], len(strict))
     weighted = {key: counts["same_text_cluster"]["half_weight"][key] / 2 + counts["same_text_cluster"]["other"][key] for key in totals}
     weighted["net"] = weighted["W"] - weighted["L"]
-    return gate(checks), {"counts": counts, "weighted": weighted, "reason_checks": reasons, "entries": detail}
+    return {**gate(checks), "by_slot_planned": planned_gate}, {
+        "counts": counts, "weighted": weighted, "reason_checks": reasons, "entries": detail, "actual_readers": actual_readers,
+    }
 
 
-def reveal(study: Study, source: Path, packs: Path, map_path: Path, submissions: Path, historical: Path | None = None) -> JSON:
+def reveal(study: Study, source: Path, packs: Path, map_path: Path, submissions: Path, historical: Path | None = None,
+           *, actual_readers: Path | None = None) -> JSON:
     seal = seal_path(map_path)
     require(not seal.resolve().is_relative_to(packs.resolve()), "封存记录不能放在盲包目录")
-    private, index, answers, map_hash = check_packs(study, source, packs, map_path, historical)
+    sealed = parse(seal.read_bytes())
+    require(isinstance(sealed, dict) and isinstance(sealed.get("map_sha256"), str), "封存格式错误，缺映射哈希")
+    private, index, answers, map_hash = check_packs(study, source, packs, map_path, historical, sealed_map_hash=sealed["map_sha256"])
+    require((actual_readers is not None) == ("actual_readers_sha256" in sealed),
+            "实际通道须与封存记录一致：缺少 --actual-readers，或封存未绑定该文件")
+    readers = None
+    if actual_readers is not None:
+        readers, reader_hash = read_actual_readers(study, actual_readers)
+        require(reader_hash == sealed["actual_readers_sha256"], "实际通道文件已变，或与封存记录不符")
     rows, state, hashes = collect(study, index, submissions)
     require(not state["errors"], "存在非法提交，不能揭盲：" + "；".join(state["errors"]))
-    require(parse(seal.read_bytes()) == {"map_sha256": map_hash, "submission_sha256": hashes, "complete": state["ok"]},
+    expected = {"map_sha256": map_hash, "submission_sha256": hashes, "complete": state["ok"]}
+    if actual_readers is not None:
+        expected["actual_readers_sha256"] = reader_hash
+    require(sealed == expected,
             "映射或提交已变，或与封存记录不符")
     length, ledger = lengths(study, answers)
     a, grade, payment = rubric_report(study, index, rows, length["candidate"])
     b, recall = recall_report(study, index, rows)
-    c, preference = preference_report(study, index, rows)
+    c, preference = preference_report(study, index, rows, readers)
     return {
         "round": study.protocol["round"], "scope": "AI 离线盲读；不代表真人、全平台验收或发布放行",
+        "slot_layout": private.get("slot_layout", "v1"),
         "pre_registered_snapshot": private["pre_registered_snapshot"], "historical_rescore_included": private["historical"],
         "validation": state, "gates": {"A": a, "B": b, "C": c},
         "all_three_pass": not (state["missing"].keys() - {"payment"}) and all(x["pass"] for x in (a, b, c)),
-        "lengths": length, "lint_ledger": ledger, "rubric": grade, "recall": recall, "preference": preference, "payment": payment,
+        "lengths": length, "lint_ledger": ledger, "lint_ledger_scope": "当前脚本自检，不改写封存首答或评分",
+        "rubric": grade, "recall": recall, "preference": preference, "payment": payment,
     }
 
 
@@ -678,6 +768,15 @@ def markdown(report: JSON) -> str:
             actual = row["actual"] if row["actual"] is not None else "未测"
             shown = f"{actual}/{row['total']}" if row["total"] is not None else str(actual)
             lines.append(f"| {name} | {item} | {shown} | {row['op']} {row['target']} | {result(row['pass'])} |")
+    counts = report["preference"]["counts"]
+    planned = report["gates"]["C"]["by_slot_planned"]["checks"]["winning_families"]
+    lines.extend(["", f"计划槽位（by_slot_planned）净胜 {planned['actual']}/{planned['total']}；仅供对照，不计入实际异构家族门。"])
+    if "by_actual_family" in counts:
+        strict = counts["strict_non_generator_families"]
+        excluded = counts["by_actual_family"].keys() - strict.keys()
+        lines.append(f"实到非生成者家族：{'、'.join(strict) or '无'}；与生成者同族、不计入异构门：{'、'.join(sorted(excluded)) or '无'}。")
+    else:
+        lines.append("未封存实际通道，计划槽位不代表实际参评家族，异构家族门未验证。")
     lines.extend(["", "## 双口径篇幅", "", "| 臂 | 档位 | 汉字达标 | 可见字符达标 |", "|---|---|---:|---:|"])
     for arm, value in report["lengths"].items():
         for tier, row in value["by_tier"].items():
@@ -686,7 +785,9 @@ def markdown(report: JSON) -> str:
     for qid, row in report["lengths"]["candidate"]["by_id"].items():
         lines.append(f"| {qid} | {row['tier']} | {row['han']}（{result(row['han_pass'])}） | {row['visible']}（{result(row['visible_pass'])}） |")
     lines.extend(["", "## 偏好原票（相对候选）", "", "| 维度 | 分组 | W | L | T | 都不用 | 缺测 |", "|---|---|---:|---:|---:|---:|---:|"])
-    for axis, groups in report["preference"]["counts"].items():
+    for axis, groups in counts.items():
+        if axis == "by_slot_planned" and "by_actual_family" in counts:
+            continue
         for name, tally in groups.items():
             lines.append(f"| {axis} | {name} | {tally['W']} | {tally['L']} | {tally['T']} | {tally['none']} | {tally['missing']} |")
     weighted = report["preference"]["weighted"]
@@ -727,8 +828,11 @@ def parser() -> argparse.ArgumentParser:
         sub.add_argument("--historical", type=Path, nargs="?", const=ARCHIVE, help="可选 R8 candidate 首答目录；无参数值时取仓库存档")
         if command == "pack":
             sub.add_argument("--frozen", type=Path, help="生成首答前由 freeze-skill 保存的快照（正式轮应指定）")
+            sub.add_argument("--slot-layout", choices=SLOT_LAYOUTS, default="v2_shuffled", help="盲包布局，默认 v2_shuffled")
         else:
             sub.add_argument("--submissions", type=Path, default=WORK / "submissions", help="已收集的匿名 JSON 提交目录")
+            sub.add_argument("--actual-readers", type=Path,
+                             help="私有 JSON：J1/J2/J3 各填 agent/model/family 名称，不含密钥；封存和揭盲须使用同一文件内容")
         if command == "validate":
             sub.add_argument("--seal", action="store_true", help="校验通过后在私有映射旁写唯一的 .seal.json，不可重封")
             sub.add_argument("--seal-incomplete", action="store_true", help="配合 --seal：只有缺测、无非法记录时也封存，仅做诊断揭盲")
@@ -749,15 +853,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.out is not None:
                 write_new(output_path(args.out, WORK / "blind_packs"), render(data))
         elif args.command == "pack":
-            data = pack(study, args.answers, args.packs, args.map_out, args.historical, args.frozen)
+            data = pack(study, args.answers, args.packs, args.map_out, args.historical, args.frozen, slot_layout=args.slot_layout)
         elif args.command == "validate":
-            data = validate(study, args.answers, args.packs, args.map_out, args.submissions, args.historical, args.seal, args.seal_incomplete)
+            data = validate(study, args.answers, args.packs, args.map_out, args.submissions, args.historical, args.seal, args.seal_incomplete,
+                            actual_readers=args.actual_readers)
         else:
             json_out = output_path(args.json_out, args.packs) if args.json_out else None
             md_out = output_path(args.markdown_out, args.packs) if args.markdown_out else None
             require(json_out is None or json_out != md_out, "JSON 和 Markdown 必须使用不同路径")
             require(not any(path and path.is_relative_to(args.submissions.resolve()) for path in (json_out, md_out)), "报告不能写入提交目录")
-            data = reveal(study, args.answers, args.packs, args.map_out, args.submissions, args.historical)
+            data = reveal(study, args.answers, args.packs, args.map_out, args.submissions, args.historical, actual_readers=args.actual_readers)
             if md_out is not None:
                 write_new(md_out, markdown(data))
             if json_out is not None:
