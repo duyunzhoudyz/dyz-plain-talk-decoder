@@ -55,16 +55,18 @@ CLAUSE_BREAK_RE = re.compile(rf"[{_CLAUSE_PUNCT}]")
 _OFFLINE_THIS = r"(?:这[份张条纸段篇则]|所[附贴]|该)"
 _OFFLINE_MATERIAL = (
     r"(?:宣传(?:页|稿|单|文案)|销售(?:页|文案)|推广页|价目表|公告|通知|通稿|公报|材料|原文|附文|记录|简报|告示|手记|"
-    r"随笔|原帖|帖[子文]?|合同|报价单|活动单|工作单|截图|资料|海报)"
+    r"随笔|原帖|帖[子文]?|合同|报价单|活动单|工作单|截图|资料|海报|发布稿)"
 )
 _OFFLINE_QUALIFIER = r"[\u3400-\u9fffA-Za-z0-9]{0,12}?"
 _OFFLINE_NAMED = rf"{_OFFLINE_THIS}{_OFFLINE_QUALIFIER}(?:{_OFFLINE_MATERIAL}|介绍|说明|文字|内容)"
 _OFFLINE_ISSUER = r"(?:厂方|馆方|经销商|商家|产品)"
 _OFFLINE_NAME = r"[\u3400-\u9fffA-Za-z0-9][\u3400-\u9fffA-Za-z0-9 \t·-]{1,31}?"
 _EXTERNAL_SOURCE = (
-    r"(?:官网|官方网站|(?:外部|第三方|官方)(?:资料|信息|来源|报价|数据|报道|证据)|(?:店内|门店)(?:报价|价格)|其他来源)"
+    r"(?:官网|官方网站|(?:外部|第三方|官方)(?:资料|信息|来源|报价|数据|报道|证据|公告)|(?:店内|门店)(?:报价|价格)|其他来源)"
 )
+_EXTERNAL_LOCATION = rf"(?:去|在|到|上|从)[ \t]*{_EXTERNAL_SOURCE}[上里中]?[ \t]*"
 _CHECK_ACTION = r"(?:核[对查实验]|查[证阅询看]?|对照|参考|检索|搜(?:索)?|看)"
+_FACT_VERB = r"(?:写明|写着|显示|载明|提到|注明|标明|称|说)"
 OFFLINE_ACK_RE = re.compile(
     rf"(?:[仅只单光]?[按看凭据]|就)[ \t]*{_OFFLINE_QUALIFIER}[ \t]*{_OFFLINE_NAMED}"
     rf"|{_OFFLINE_NAMED}(?:里|中|上)"
@@ -72,10 +74,12 @@ OFFLINE_ACK_RE = re.compile(
     rf"{_OFFLINE_THIS}(?=[ \t：:]*$))"
     rf"|(?:[按就]|[仅只单光](?:[看按凭据]|对照)了?|[只都均]来自)你"
     rf"(?:[贴附]的|给的(?:{_OFFLINE_NAMED}|{_OFFLINE_MATERIAL}))"
+    rf"|[按据][ \t]*{_OFFLINE_MATERIAL}(?:给的|列出的)(?:数字|数据)"
     rf"|[仅只单光]?[按据][ \t]*(?!内容|说明|材料|介绍|文字|相关|一般|普通|操作|使用)"
     rf"{_OFFLINE_NAME}(?:公告|说明|招募|价目表|通知|细则|帖[子文]?|简报)"
     rf"|^[ \t>\-]*(?!(?:这|那|它|我(?:们)?)?(?:并非|并未|不|没|未))"
-    rf"{_OFFLINE_NAME}的[ \t]*(?:厂方说明|公告|活动单|工作单|经营简报|价目表)"
+    rf"(?:{_OFFLINE_NAME}的[ \t]*(?:厂方说明|公告|活动单|工作单|经营简报|价目表|招募{_FACT_VERB})"
+    rf"|(?:{_OFFLINE_QUALIFIER}、)?{_OFFLINE_QUALIFIER}两份{_OFFLINE_QUALIFIER}简报{_FACT_VERB})"
     r"|(?:讨论板|讨论区|论坛)[上里中]的这条帖|价目表[里中上]?写明"
     r"|(?:未|没(?:有)?)(?:联网(?:核查)?|核查|查外部|外查|另查|查过|[作做]外部(?:查证|核查|核实|核对|核验))"
     r"|无法联网|只做(?:了)?题内对照"
@@ -90,10 +94,14 @@ OFFLINE_DOUBLE_NEGATION_RE = re.compile(
 AUTHOR_EXTERNAL_CHECK_RE = re.compile(
     rf"(?:^[ \t>*-]*|(?<=[—：:])[ \t]*|我(?:们)?[ \t]*)"
     rf"(?:(?:但(?:是)?|不过|然而|只是|并(?:且)?|同时|我(?:们)?|这次|本次|另外|另行|额外|也|还|又)[ \t]*){{0,6}}"
-    rf"(?:{_CHECK_ACTION}(?:了|过)[ \t]*{_EXTERNAL_SOURCE}|"
+    rf"(?:{_CHECK_ACTION}(?:[了过]的?|到的)[ \t]*{_EXTERNAL_SOURCE}|"
     rf"{_CHECK_ACTION}[ \t]*{_EXTERNAL_SOURCE}(?:报价|价格|信息|资料)?(?:了|过)|"
-    rf"(?:已(?:经)?|曾(?:经)?|刚刚?)[ \t]*(?:{_CHECK_ACTION}(?:了|过)?[ \t]*{_EXTERNAL_SOURCE}|联网核查|外查)|"
+    rf"(?:已(?:经)?|曾(?:经)?|刚[刚才]?)[ \t]*(?:{_CHECK_ACTION}(?:[了过到]的?)?[ \t]*{_EXTERNAL_SOURCE}|"
+    rf"{_EXTERNAL_LOCATION}{_CHECK_ACTION}|联网核查|外查)|"
     r"(?:联网核查|外查)(?:了|过))"
+    # “去官网查过再决定”“查到官网报价再决定”也可以是建议；此处要求显式的作者主语。
+    rf"|我(?:们)?[ \t]*(?:(?:另外|另行|也|还|又|自己)[ \t]*){{0,4}}"
+    rf"(?:{_EXTERNAL_LOCATION}{_CHECK_ACTION}[了过到]|{_CHECK_ACTION}到[ \t]*{_EXTERNAL_SOURCE})"
 )
 
 # 高风险领域的明确越界决策表述（分句级排除否定前缀，如“绝不建议/也不推荐直接服用”不误杀）
@@ -122,6 +130,9 @@ PROFESSIONAL = (
 )
 _PROFESSIONAL_MODIFIER = rf"(?:(?:(?!而非|并非|不是|不具备|没有)[^{_CLAUSE_PUNCT}：:]){{1,12}}的|当地|本地|附近|社区|值班)?"
 CONSULTATION_NARRATION_RE = re.compile(r"(?:[我他她]们?|已(?:经)?|曾(?:经)?|刚刚?|正在|打算|准备)[ \t]*(?:(?:先|再|去)[ \t]*){0,3}$")
+CONSULTATION_NEGATION_AFTER_RE = re.compile(
+    r"[ \t]*(?:(?:其实|根本|完全|本身|也|并|是)[ \t]*){0,4}(?:没(?:有)?必要|不必要|不需要|无需|不必|不用|没用|多余)"
+)
 HIGH_RISK_BOUNDARY_RE = re.compile(
     rf"(?:咨询|请教|询问|求助于|找|核对|问问?)[ \t]*{_PROFESSIONAL_MODIFIER}{PROFESSIONAL}|"
     rf"(?:请|向|让|跟|和|与|由)[ \t]*{_PROFESSIONAL_MODIFIER}{PROFESSIONAL}"
@@ -139,7 +150,10 @@ _SOURCE_INTRO = (
 )
 SOURCE_ATTRIBUTION_RE = re.compile(rf"(?:{_SOURCE_INTRO}|(?:原文|原帖)(?:里|中)?的)[ \t]*(?:>[ \t]*)?$")
 UNQUOTED_SOURCE_RE = re.compile(rf"(?P<intro>{_SOURCE_INTRO})[ \t]*[，,]?[ \t]*(?P<body>[^{_CLAUSE_PUNCT}]+)")
-SOURCE_PIVOT_RE = re.compile(r"—|但|不过|然而|只是|我(?:还是建议|建议|认为|觉得|劝|另|还|也|已)")
+SOURCE_PIVOT_RE = re.compile(
+    r"—|但|不过|然而|只是|我(?:还是建议|建议|认为|觉得|劝|另|还|也|已)|"
+    r"[（(][ \t]*(?:我的(?:判断|结论)|我(?:认为|觉得|建议)|个人(?:建议|判断)|这里我建议)"
+)
 SOURCE_ATTRIBUTION_AFTER_RE = re.compile(
     rf"^\s*(?:[，,]\s*)?(?:这(?:句话|句|个标签|个标注))?(?:来自|出自|是){SOURCE}(?:的)?(?:原话|原句|标签|标注)"
 )
@@ -170,10 +184,11 @@ INTERNAL_JARGON_PATTERNS = [
 ADVICE_SECTION_HEADING = re.compile(r"^(?:给你的建议|结论与下一步|建议|下一步)")
 FACT_SECTION_HEADING = re.compile(r"^(?:事实|核查|可信度|滤镜拆解|潜台词|原文要点)")
 FACT_CUE = re.compile(
-    r"^\s*[*_> -]*(?:(?:但(?:是)?|不过|然而)\s*)?(?:事实(?:上|是)|据(?:原文|原帖)|"
-    r"(?:原文|原帖|材料|文案|文章|报道|报告|海报|宣传页|广告|商家|合同|公告|条款|价目表|记录|厂标|票面|退款规则)"
-    r"[^，,:：]{0,14}(?:写|称|说|显示|交代|提到|列出|给出|标明|注明|意味着|只是|并非|不等于|未公布|未披露)|"
-    r"(?:票价|售价|有效期|门槛|单次票|按次票|月卡|次卡|名额)(?:是|为|仅限|须|需|不退|[^，,:：]{0,8}元))"
+    r"[\s*_>-]*(?:(?:但(?:是)?|不过|然而)\s*)?(?:事实(?:上|是)|据(?:原文|原帖)|"
+    r"(?:原文|原帖|材料|文案|文章|报道|报告|海报|宣传页|广告|商家|合同|公告|条款|价目表|记录|厂标|票面|退款规则|"
+    r"招募|简报|协议|活动单|工作单|截图|发布稿)"
+    r"[^、，,；;:：]{0,14}(?:写|称|说|显示|交代|提到|列出|给出|标明|注明|意味着|只是|并非|不等于|未公布|未披露|载明)|"
+    r"(?:票价|售价|有效期|门槛|单次票|按次票|月卡|次卡|名额)(?:是|为|仅限|须|需|不退|[^、，,；;:：]{0,8}元))"
 )
 PERSONAL_LEAD = re.compile(r"^\s*[*_> -]*(?:按你说|结合你|按你的|根据你的|考虑到你|针对你|你计划)")
 ADVICE_CUE = re.compile(
@@ -181,8 +196,9 @@ ADVICE_CUE = re.compile(
     r"(?:先|不妨)(?:问|别急|要|查|核对|确认|拿|等|看|试|向|把|做)|"
     r"(?:按你说|结合你|按你的|根据你的|考虑到你|针对你|你计划).*?(?:建议|可以|不妨|先(?:问|别|不|要|查|看|试)))"
 )
-PROFILE_CLAUSE_BREAK_RE = re.compile(r"[，,；;：:]")
-FACT_LEAD = re.compile(r"\s*[*_> -]*(?:据(?:原文|原帖)|原文(?:写明|写着|说)?|核查|事实(?:上|是)?)\s*")
+FACT_LEAD = re.compile(r"[\s*_>-]*(?:据(?:原文|原帖)|原文(?:写明|写着|说)?|核查|事实(?:上|是)?)\s*")
+# 顿号后的明确事实另起分句；并列短语原样保留。
+PROFILE_CLAUSE_BREAK_RE = re.compile(rf"([，,；;：:]|、(?={FACT_CUE.pattern}|{FACT_LEAD.pattern}[：:]))")
 
 
 def count_visible_chars(markdown_text: str) -> tuple[int, int]:
@@ -229,12 +245,13 @@ def _strip_unquoted_source(report: str, *, keep_intro: bool = False) -> str:
 
 def _has_offline_disclosure(author_report: str) -> bool:
     # 归因导语属于答复作者，引述正文里的核查声明不属于作者。
+    clauses = CLAUSE_BREAK_RE.split(_strip_unquoted_source(author_report, keep_intro=True))
+    if any(OFFLINE_DOUBLE_NEGATION_RE.search(clause) or any(
+        not OFFLINE_NEGATION_RE.search(clause[:m.start()]) for m in AUTHOR_EXTERNAL_CHECK_RE.finditer(clause)
+    ) for clause in clauses):
+        return False
     disclosed = False
-    for clause in CLAUSE_BREAK_RE.split(_strip_unquoted_source(author_report, keep_intro=True)):
-        if OFFLINE_DOUBLE_NEGATION_RE.search(clause) or any(
-            not OFFLINE_NEGATION_RE.search(clause[:m.start()]) for m in AUTHOR_EXTERNAL_CHECK_RE.finditer(clause)
-        ):
-            return False
+    for clause in clauses:
         for match in OFFLINE_ACK_RE.finditer(clause):
             if OFFLINE_NEGATION_RE.search(clause[:match.start()]):
                 continue
@@ -270,10 +287,14 @@ def _profile_hits(text: str, terms: list[str]) -> tuple[set[str], set[str]]:
 
         located: set[str] = set()
         for sentence in re.split(r"[。！？!?\n]", paragraph):
-            clauses = PROFILE_CLAUSE_BREAK_RE.split(sentence)
-            # “据原文，”等没有正文的导语归到紧接的分句，不影响其他分句。
+            parts = PROFILE_CLAUSE_BREAK_RE.split(sentence)
+            clauses, separators = parts[::2], parts[1::2]
+            # 事实导语的冒号只管紧接的补语，不跨分句传播。
             factual = [
-                bool(FACT_CUE.match(clause) or (i > 0 and FACT_LEAD.fullmatch(clauses[i - 1])))
+                bool(FACT_CUE.match(clause) or (i > 0 and (
+                    FACT_LEAD.fullmatch(clauses[i - 1])
+                    or (separators[i - 1] in "：:" and FACT_CUE.match(clauses[i - 1]))
+                )))
                 for i, clause in enumerate(clauses)
             ]
             mixed = any(factual)
@@ -376,7 +397,9 @@ def lint_report(
             })
         if not any(
             not CLAUSE_NEGATION_RE.search(prefix := clause[:m.start()])
-            and (m["disclaimer"] or not CONSULTATION_NARRATION_RE.search(prefix))
+            and (m["disclaimer"] or (
+                not CONSULTATION_NARRATION_RE.search(prefix) and not CONSULTATION_NEGATION_AFTER_RE.match(clause, m.end())
+            ))
             for clause in CLAUSE_BREAK_RE.split(risk_report) for m in HIGH_RISK_BOUNDARY_RE.finditer(clause)
         ):
             errors.append({

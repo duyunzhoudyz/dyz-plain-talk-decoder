@@ -228,6 +228,11 @@ class TestLintReport:
         "原文写明星砂预算是3000元，建议先核对。",
         "据原文，星砂预算是3000元。",
         "原文写明：星砂预算是3000元。",
+        "材料写明：星砂预算是3000元。",
+        "价目表显示：星砂预算是3000元。",
+        "公告写着：星砂预算是3000元。",
+        "协议载明:星砂预算是3000元。",
+        "活动单提到：星砂预算是3000元。",
         "按你说的时间先问店员，但原文写明星砂预算是3000元。",
     ))
     def test_advice_heading_does_not_exempt_profile_leak_in_facts(self, fact):
@@ -240,7 +245,7 @@ class TestLintReport:
         result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
         assert result["ok"] is True and result["warnings"] == []
 
-    @pytest.mark.parametrize("separator", ("，", ",", "；", ";", "：", ":"))
+    @pytest.mark.parametrize("separator", ("，", ",", "；", ";", "：", ":", "、"))
     def test_personal_lead_cannot_hide_factual_clause(self, separator):
         text = f"## 给你的建议\n\n按你说的时间先问店员{separator}原文写明星砂预算是3000元。"
         result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
@@ -254,10 +259,26 @@ class TestLintReport:
         assert result["ok"] is True and result["errors"] == []
         assert {w["code"] for w in result["warnings"]} == {"profile_isolation_needs_review"}
 
-    def test_profile_can_be_used_to_ask_about_document(self):
-        text = "## 给你的建议\n\n按你说的星砂预算，建议先问价目表是否包含周末加价。"
+    @pytest.mark.parametrize("lead", ("按你说的星砂预算", "按你说的星砂预算、到店时间"))
+    def test_profile_can_be_used_to_ask_about_document(self, lead):
+        text = f"## 给你的建议\n\n{lead}，建议先问价目表是否包含周末加价。"
         result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
         assert result["ok"] is True and result["errors"] == result["warnings"] == []
+
+    def test_profile_can_be_used_in_untitled_advice_list(self):
+        text = "原文写明周末开放。\n\n按你说的到店时间、星砂预算，先问书面报价。"
+        result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
+        assert result["ok"] is True and result["errors"] == result["warnings"] == [], result
+
+    @pytest.mark.parametrize("complement", (
+        "按你说的星砂预算先问书面报价。",
+        "建议你先问星砂预算能否覆盖报价。",
+        "周末开放，星砂预算待确认。",
+    ))
+    def test_profile_fact_colon_context_only_covers_immediate_factual_complement(self, complement):
+        result = lr.lint_report(f"## 给你的建议\n\n材料写明：{complement}",
+                                tier="fast", profile_terms=["星砂预算"])
+        assert result["ok"] is True and not result["errors"], result
 
     def test_ambiguous_profile_term_requests_review_without_echoing(self):
         for text in (
@@ -321,6 +342,7 @@ class TestLintReport:
         ("海报鼓吹建议你买入这只基金；请咨询持牌投顾。", None),
         ("原文：‘建议你买入这只基金’。请咨询持牌投顾。", None),
         ("原文写着“建议买入”。请咨询持牌投顾。", None),
+        ("材料写着“风险自担（我的判断：建议你买入这只基金）”。请咨询持牌投顾。", None),
         ("并非投资建议。", None),
         ("并非医疗建议。", None),
         ("并非法律意见。", None),
@@ -350,6 +372,16 @@ class TestLintReport:
         ("无需专门咨询持牌专业人士。", "missing_high_risk_boundary"),
         ("不用咨询医生。", "missing_high_risk_boundary"),
         ("不需要咨询律师。", "missing_high_risk_boundary"),
+        ("咨询持牌投顾没有必要。", "missing_high_risk_boundary"),
+        ("找执业医生没必要。", "missing_high_risk_boundary"),
+        ("咨询持牌理财顾问不需要。", "missing_high_risk_boundary"),
+        ("咨询律师无需。", "missing_high_risk_boundary"),
+        ("咨询执业医师不必。", "missing_high_risk_boundary"),
+        ("咨询医生没用。", "missing_high_risk_boundary"),
+        ("找专业医生不必要。", "missing_high_risk_boundary"),
+        ("找律师不用。", "missing_high_risk_boundary"),
+        ("请教投资顾问也是多余的。", "missing_high_risk_boundary"),
+        ("请咨询执业医生，没必要现在停药。", None),
     ))
     def test_high_risk_review_regressions(self, text, code):
         result = lr.lint_report(text, tier="fast", high_risk=True)
@@ -365,6 +397,18 @@ class TestLintReport:
         result = lr.lint_report(text, tier="fast", high_risk=True)
         assert result["ok"] is False
         assert {e["code"] for e in result["errors"]} == {"high_risk_overreach"}
+
+    @pytest.mark.parametrize("judgment", (
+        "（我的判断：建议你买入这只基金）", "(我的判断: 建议你买入这只基金)",
+        "（我认为你应该买入这只基金）", "(我觉得你该买入这只基金)",
+        "（我建议你买入这只基金）", "(个人建议: 建议你买入这只基金)",
+        "（个人判断：建议你买入这只基金）", "(我的结论: 建议你买入这只基金)",
+        "（这里我建议你买入这只基金）",
+    ))
+    def test_unquoted_source_keeps_explicit_author_parenthesis(self, judgment):
+        result = lr.lint_report(f"材料写着风险自担{judgment}。请咨询持牌投顾。", tier="fast", high_risk=True)
+        assert result["ok"] is False, result
+        assert {e["code"] for e in result["errors"]} == {"high_risk_overreach"}, result
 
     def test_r10c_q32_professional_boundary(self):
         answer = (ROOT / "tests/eval_round10/answers/candidate/Q32.md").read_text(encoding="utf-8")
@@ -422,6 +466,14 @@ class TestLintReport:
         ("不只按这张价目表里的数字，我也看了店内报价。", False),
         ("不只是按这张价目表，我也看了店内报价。", False),
         ("只看这张海报，我另外也核对了官网。", False),
+        ("只看这张海报，我去官网核对了报价。", False),
+        ("据我刚查到的官网公告，周末营业。", False),
+        ("只看这张海报，我刚在官网查过报价。", False),
+        ("只看这张海报，我去官网查证过。", False),
+        ("据我查到的外部公告，周末营业。", False),
+        ("只看这张海报，我查到官网公告了。", False),
+        ("只看这张海报，我查了官网报价。", False),
+        ("我已从官网上查到报价。只看这张海报，周末营业。", False),
         ("只看这张海报并核对了官网。", False),
         ("按榆格公共底片馆的两期公告，周三改为预约。我查过外部信息。", False),
         ("单看这张海报即可——我也核对了官网。", False),
@@ -445,6 +497,16 @@ class TestLintReport:
         ("只看这张海报，材料写着‘我另外也核对了官网’。", True),
         ("只看这张海报，没有核对官网；建议先核对官网。", True),
         ("只看这张海报，场馆核对过官网。", True),
+        ("按这张活动单，建议你去官网核对报价。", True),
+        ("只看这张海报，具体请自行去官网查。", True),
+        ("只看这张海报，你可以去官网核实。", True),
+        ("只看这张海报，我建议你去官网核对报价。", True),
+        ("只看这张海报，去官网查过再决定。", True),
+        ("只看这张海报，查到官网报价再决定。", True),
+        ("只看这张海报，材料里写着对方去官网查过。", True),
+        ("只看这张海报，材料写着‘据我刚查到的官网公告，周末营业’。", True),
+        ("只看这张海报，据对方刚查到的官网公告，周末营业。", True),
+        ("只看这张海报，我没有去官网核对过。", True),
         ("价目表写明五次起划算。", True),
         ("按榆格馆二期招募，本周可以报名。", True),
         ("按蓝栖第二期细则，周末不开放。", True),
@@ -459,12 +521,11 @@ class TestLintReport:
         assert result["ok"] is True, result
         assert {w["code"] for w in result["warnings"]} == (set() if disclosed else {"missing_offline_disclosure"}), (text, result)
 
-    @pytest.mark.parametrize("qid", ("Q01", "Q02", "Q20"))
+    @pytest.mark.parametrize("qid", ("Q01", "Q02", "Q05", "Q07", "Q20", "Q31"))
     def test_r10c_named_source_acknowledged_without_extra_disclaimer(self, qid):
         answer = (ROOT / "tests/eval_round10/answers/candidate" / f"{qid}.md").read_text(encoding="utf-8")
         result = lr.lint_report(answer, tier="standard", offline=True)
-        assert result["ok"] is True, result
-        assert "missing_offline_disclosure" not in {w["code"] for w in result["warnings"]}, result
+        assert result["ok"] is True and result["errors"] == result["warnings"] == [], result
 
     @pytest.mark.parametrize("text", (
         "的" * 20000 + "原文是建议你买入这只基金。",

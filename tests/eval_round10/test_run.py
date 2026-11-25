@@ -236,7 +236,16 @@ class TestRound10(unittest.TestCase):
         self.assertTrue(report["gates"]["C"]["by_slot_planned"]["pass"])
         self.assertFalse(report["gates"]["C"]["pass"])
         self.assertIsNone(report["gates"]["C"]["checks"]["winning_families"]["actual"])
-        self.assertIn("异构家族门未验证", run.markdown(report))
+        self.assertFalse(report["gates"]["B"]["pass"])
+        self.assertTrue(all(row["pass"] for key, row in report["gates"]["B"]["checks"].items() if key != "reader_eligibility"))
+        md = run.markdown(report)
+        self.assertIn("异构家族门未验证", md)
+        for name in "BC":
+            check = report["gates"][name]["checks"]["reader_eligibility"]
+            self.assertFalse(check["pass"])
+            self.assertIn("未绑定实际通道，异构席位未验证", check["reason"])
+            self.assertIn(f"| {name} | reader_eligibility |", md)
+        self.assertIn("未绑定实际通道，异构席位未验证", md)
 
     def test_pack_refuses_missing_answer_and_public_mapping(self):
         self.seed_answers()
@@ -301,13 +310,19 @@ class TestRound10(unittest.TestCase):
         path.write_text(run.render(rows).replace('"choice":', '"choice":"A", "choice":', 1), encoding="utf-8")
         self.assertIn("JSON 重复字段", " ".join(self.validate()["errors"]))
 
-    def test_quote_minimum_ignores_spacing_and_invisible_characters(self):
+    def test_quote_minimum_ignores_spacing_invisible_characters_and_markdown(self):
         for quote in ("的", "的 \n \t", "的\u200b\u200d\ufeff", "的\ufe0f\u034f\ufe0f",
-                      "**的**", "__的__", "`的`", "~~的~~", "*的*", "_的_", "**_*的\u200b*__~~"):
+                      "**的**", "__的__", "`的`", "~~的~~", "*的*", "_的_", "**_*的\u200b*__~~",
+                      "## 一句", "> - **的一句**", "+ 一句", "* 一句", "12. 一句",
+                      "[的](https://example.invalid/)", "[的](https://example.invalid/(a))"):
             with self.subTest(quote=quote), self.assertRaisesRegex(ValueError, "至少需 4 个可见字符"):
                 run.check_quote(quote, [quote + "是原答的一部分。"])
         run.check_quote("场 地\n规 则", ["以场 地\r\n规 则为准。"])
         run.check_quote("**场地规则**", ["以**场地规则**为准。"])
+        formatted = "## [**场地规则**](https://example.invalid/)"
+        run.check_quote(formatted, [f"前言。\n{formatted}\n下一段。"])
+        with self.assertRaisesRegex(ValueError, "引句未出现在指定原答"):
+            run.check_quote(formatted.replace("example.invalid", "other.invalid"), [formatted])
         quote = "请先咨询安排复查的**执业医生**"
         answer = (run.HERE / "answers/candidate/Q32.md").read_text(encoding="utf-8")
         run.check_quote(quote, [answer])
@@ -324,6 +339,8 @@ class TestRound10(unittest.TestCase):
         a, b, c = (report["gates"][key]["checks"] for key in "ABC")
         self.assertEqual([a[name]["actual"] for name in ("vetoes", "modes", "cards", "conditions", "controls", "q09_effects", "han", "visible")], [0, 32, 20, 100, 6, 4, 31, 32])
         self.assertEqual([b[name]["actual"] for name in ("submissions", "total", "limitation", "all_correct")], [72, 87, 29, 24])
+        self.assertEqual(b["reader_eligibility"], run.metric(3, 3, 3, "="))
+        self.assertEqual(b["reader_eligibility"], c["reader_eligibility"])
         self.assertEqual(report["recall"]["cross_field"]["candidate"]["limitation"], 7)
         self.assertEqual([c[name]["actual"] for name in ("wins", "net", "two_reader_wins", "new_other_text_two_reader_wins", "winning_families", "effective_net")], [21, 8, 8, 5, 2, 4])
         raw = report["preference"]["counts"]["overall"]["all"]
@@ -361,6 +378,62 @@ class TestRound10(unittest.TestCase):
         self.assertIn("| by_actual_family | OpenAI | 8 | 4 |", md)
         self.assertIn("与生成者同族、不计入异构门：OpenAI", md)
         self.assertNotIn("DeepSeek", md)
+        self.assertFalse(report["gates"]["B"]["pass"])
+        self.assertEqual(c["checks"]["reader_eligibility"], report["gates"]["B"]["checks"]["reader_eligibility"])
+        self.assertIn("与生成者同族", c["checks"]["reader_eligibility"]["reason"])
+
+    def test_ineligible_reader_cannot_pass_recall_or_preference_even_with_strong_scores(self):
+        self.seed_packs()
+        self.seed_submissions()
+        _, index, _, _ = run.check_packs(self.study, self.answers, self.packs, self.private, None)
+        rows, state, _ = run.collect(self.study, index, self.submissions)
+        self.assertTrue(state["ok"])
+        planned = self.study.protocol["blind_readers"]
+        majority = {"Q03", "Q09", "Q15", "Q01", "Q06", "Q08", "Q10", "Q12"}
+        base_wins = {"J1": majority | {"Q23"}, "J2": majority - {"Q03"}}
+        ineligible = (
+            ({**planned, "J3": {"family": "Open AI", "model": "congming/gpt-6.2-astra", "agent": "omp"}}, "与生成者同族"),
+            ({**planned, "J3": {"family": "unknown", "model": "unlisted-model", "agent": "omp"}}, "未识别"),
+            ({**planned, "J3": {**planned["J1"], "family": "Google DeepMind"}}, "读者家族重复"),
+            ({key: planned[key] for key in ("J1", "J2")}, "预注册席位"),
+            ({**planned, "J4": planned["J1"]}, "预注册席位"),
+        )
+        for strong_j3 in (True, False):
+            wins = {**base_wins, "J3": majority if strong_j3 else set()}
+            for key, (meta, body) in index.items():
+                kind = meta["kind"]
+                if kind == "preference":
+                    side = meta["candidate_position"]
+                    choice = side if meta["qid"] in wins[meta["reader"]] else {"A": "B", "B": "A"}[side]
+                    rows[kind][key].update(choice=choice, quote=body["answers"][choice][:4])
+                    rows["reason_checks"][key] = {"assignment_id": key, "status": "grounded", "basis": "合成核验记录"}
+                elif kind == "recall" and meta["arm"] == "candidate":
+                    score = int(strong_j3 if meta["reader"] == "J3" else meta["qid"] != "Q23")
+                    rows["recall_grades"][key].update(
+                        scores=dict.fromkeys(run.FIELDS, score), cross_field=[],
+                        quotes=dict.fromkeys(run.FIELDS, body["answer"][:4]) if score else {},
+                    )
+            baseline_b, recall = run.recall_report(self.study, index, rows, planned)
+            baseline_c, preference = run.preference_report(self.study, index, rows, planned)
+            self.assertEqual((baseline_b["pass"], baseline_c["pass"]), (strong_j3, strong_j3))
+            self.assertEqual(baseline_b["checks"]["total"], run.metric(102 if strong_j3 else 66, 87, 108))
+            self.assertEqual(baseline_c["checks"]["wins"], run.metric(24 if strong_j3 else 16, 21, 36))
+            for panel, reason in ineligible:
+                with self.subTest(strong_j3=strong_j3, reason=reason):
+                    b, recall_with_panel = run.recall_report(self.study, index, rows, panel)
+                    c, preference_with_panel = run.preference_report(self.study, index, rows, panel)
+                    self.assertFalse(b["pass"] or c["pass"])
+                    check = b["checks"]["reader_eligibility"]
+                    self.assertFalse(check["pass"])
+                    self.assertEqual(check, c["checks"]["reader_eligibility"])
+                    self.assertIn(reason, check["reason"])
+                    if strong_j3:
+                        for gate in (b, c):
+                            self.assertTrue(all(row["pass"] for key, row in gate["checks"].items() if key != "reader_eligibility"))
+                    self.assertEqual(b["checks"]["total"], baseline_b["checks"]["total"])
+                    self.assertEqual(c["by_slot_planned"], baseline_c["by_slot_planned"])
+                    self.assertEqual(recall_with_panel, recall)
+                    self.assertEqual(preference_with_panel["counts"]["overall"], preference["counts"]["overall"])
 
     def test_canonical_family_keys_and_model_inference(self):
         for raw, key in (
