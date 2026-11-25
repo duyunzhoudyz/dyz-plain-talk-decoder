@@ -55,11 +55,16 @@ CLAUSE_BREAK_RE = re.compile(rf"[{_CLAUSE_PUNCT}]")
 _OFFLINE_THIS = r"(?:这[份张条纸段篇则]|所[附贴]|该)"
 _OFFLINE_MATERIAL = (
     r"(?:宣传(?:页|稿|单|文案)|销售(?:页|文案)|推广页|价目表|公告|通知|通稿|公报|材料|原文|附文|记录|简报|告示|手记|"
-    r"随笔|原帖|帖[子文]|合同|报价单|活动单|工作单|截图|资料|海报)"
+    r"随笔|原帖|帖[子文]?|合同|报价单|活动单|工作单|截图|资料|海报)"
 )
 _OFFLINE_QUALIFIER = r"[\u3400-\u9fffA-Za-z0-9]{0,12}?"
 _OFFLINE_NAMED = rf"{_OFFLINE_THIS}{_OFFLINE_QUALIFIER}(?:{_OFFLINE_MATERIAL}|介绍|说明|文字|内容)"
 _OFFLINE_ISSUER = r"(?:厂方|馆方|经销商|商家|产品)"
+_OFFLINE_NAME = r"[\u3400-\u9fffA-Za-z0-9][\u3400-\u9fffA-Za-z0-9 \t·-]{1,31}?"
+_EXTERNAL_SOURCE = (
+    r"(?:官网|官方网站|(?:外部|第三方|官方)(?:资料|信息|来源|报价|数据|报道|证据)|(?:店内|门店)(?:报价|价格)|其他来源)"
+)
+_CHECK_ACTION = r"(?:核[对查实验]|查[证阅询看]?|对照|参考|检索|搜(?:索)?|看)"
 OFFLINE_ACK_RE = re.compile(
     rf"(?:[仅只单光]?[按看凭据]|就)[ \t]*{_OFFLINE_QUALIFIER}[ \t]*{_OFFLINE_NAMED}"
     rf"|{_OFFLINE_NAMED}(?:里|中|上)"
@@ -67,15 +72,34 @@ OFFLINE_ACK_RE = re.compile(
     rf"{_OFFLINE_THIS}(?=[ \t：:]*$))"
     rf"|(?:[按就]|[仅只单光](?:[看按凭据]|对照)了?|[只都均]来自)你"
     rf"(?:[贴附]的|给的(?:{_OFFLINE_NAMED}|{_OFFLINE_MATERIAL}))"
+    rf"|[仅只单光]?[按据][ \t]*(?!内容|说明|材料|介绍|文字|相关|一般|普通|操作|使用)"
+    rf"{_OFFLINE_NAME}(?:公告|说明|招募|价目表|通知|细则|帖[子文]?|简报)"
+    rf"|^[ \t>\-]*(?!(?:这|那|它|我(?:们)?)?(?:并非|并未|不|没|未))"
+    rf"{_OFFLINE_NAME}的[ \t]*(?:厂方说明|公告|活动单|工作单|经营简报|价目表)"
+    r"|(?:讨论板|讨论区|论坛)[上里中]的这条帖|价目表[里中上]?写明"
     r"|(?:未|没(?:有)?)(?:联网(?:核查)?|核查|查外部|外查|另查|查过|[作做]外部(?:查证|核查|核实|核对|核验))"
     r"|无法联网|只做(?:了)?题内对照"
 )
-OFFLINE_NEGATION_RE = re.compile(r"(?:并非|不(?:[仅只单光]?是)?|别|勿)(?:说(?:我(?:们)?)?)?[ \t：:]*[“‘「『\"']?$")
+OFFLINE_NEGATION_RE = re.compile(
+    r"(?:并非|不(?:[仅只单光]?是|[仅只单光])?|没(?:有)?|并未|未|别|勿)(?:说(?:我(?:们)?)?)?[ \t：:]*[“‘「『\"']?$"
+)
+OFFLINE_DOUBLE_NEGATION_RE = re.compile(
+    r"(?:并非|不是)[ \t]*(?:(?:完全|彻底|全然|根本|一点(?:儿)?(?:也|都)?)[ \t]*)*"
+    r"(?:未|没(?:有)?)[ \t]*(?:核[对查实验]|查|联网|外查|另查|搜|[作做]外部)"
+)
+AUTHOR_EXTERNAL_CHECK_RE = re.compile(
+    rf"(?:^[ \t>*-]*|(?<=[—：:])[ \t]*|我(?:们)?[ \t]*)"
+    rf"(?:(?:但(?:是)?|不过|然而|只是|并(?:且)?|同时|我(?:们)?|这次|本次|另外|另行|额外|也|还|又)[ \t]*){{0,6}}"
+    rf"(?:{_CHECK_ACTION}(?:了|过)[ \t]*{_EXTERNAL_SOURCE}|"
+    rf"{_CHECK_ACTION}[ \t]*{_EXTERNAL_SOURCE}(?:报价|价格|信息|资料)?(?:了|过)|"
+    rf"(?:已(?:经)?|曾(?:经)?|刚刚?)[ \t]*(?:{_CHECK_ACTION}(?:了|过)?[ \t]*{_EXTERNAL_SOURCE}|联网核查|外查)|"
+    r"(?:联网核查|外查)(?:了|过))"
+)
 
 # 高风险领域的明确越界决策表述（分句级排除否定前缀，如“绝不建议/也不推荐直接服用”不误杀）
 INVESTMENT = r"(?:基金|股票|理财|保险)"
 INVESTMENT_ACTION = r"(?:买入|入手|购买|买|重仓|加仓|抛售|卖出)"
-INVESTMENT_DIRECTIVE = r"(?:(?:建议|推荐|可以|直接|值得)(?:你)?)"
+INVESTMENT_DIRECTIVE = r"(?:(?:建议|推荐|可以|直接|值得|我劝)你?|我(?:认为|觉得)你?(?:应当|应该|该))"
 TREATMENT_DIRECTIVE = r"(?:可以放心|直接|建议你|推荐你)"
 TREATMENT_ACTION = r"(?:服用|吃|停用|停吃)"
 HIGH_RISK_OVERREACH_PATTERNS = [
@@ -88,8 +112,8 @@ HIGH_RISK_OVERREACH_PATTERNS = [
     re.compile(r"(?:可以放心签|直接签吧|赶紧签|千万别签这份合同)"),
 ]
 CLAUSE_NEGATION_RE = re.compile(
-    r"(?:并不是|不是|并非|并未|没有|绝不|切勿|不要|不能|不可|不必|无需|不用|也不|并不|别|勿|不|未|没)"
-    r"[ \t]*(?:(?:(?:推荐|建议|鼓励|主张|需要)你?|替你|请|应当?|应该|打算|先|再|去)[ \t]*){0,4}$"
+    r"(?:并不是|不是|并非|并未|没(?:有)?必要|没有|绝不|切勿|不要|不能|不可|不必|不该|不宜|无[需须]|不用|用不着|也不|并不|别|勿|不|未|没)"
+    r"[ \t]*(?:(?:(?:推荐|建议|鼓励|主张|需要)你?|替你|请|应当?|应该|打算|特意|专门|一定|先|再|去|要)[ \t]*){0,4}$"
 )
 PROFESSIONAL = (
     r"(?:(?:(?:有|具备)执业资格的|有资质的|合格的)?(?:执业|专业)?(?:医生|医师|药师|律师|法律从业者)|"
@@ -97,11 +121,12 @@ PROFESSIONAL = (
     r"(?!的?(?:照片|画像|身份))"
 )
 _PROFESSIONAL_MODIFIER = rf"(?:(?:(?!而非|并非|不是|不具备|没有)[^{_CLAUSE_PUNCT}：:]){{1,12}}的|当地|本地|附近|社区|值班)?"
+CONSULTATION_NARRATION_RE = re.compile(r"(?:[我他她]们?|已(?:经)?|曾(?:经)?|刚刚?|正在|打算|准备)[ \t]*(?:(?:先|再|去)[ \t]*){0,3}$")
 HIGH_RISK_BOUNDARY_RE = re.compile(
     rf"(?:咨询|请教|询问|求助于|找|核对|问问?)[ \t]*{_PROFESSIONAL_MODIFIER}{PROFESSIONAL}|"
     rf"(?:请|向|让|跟|和|与|由)[ \t]*{_PROFESSIONAL_MODIFIER}{PROFESSIONAL}"
     rf"[^{_CLAUSE_PUNCT}：:]{{0,12}}(?:核对|复核|确认|评估|咨询|把关|审阅|问清)|"
-    r"(?:不构成|不是|不(?:能)?代替)(?:专业|投资|理财|医疗|用药|法律)(?:建议|意见|诊断)"
+    r"(?P<disclaimer>(?:不构成|不是|并非|并不算|不(?:能)?代替)(?:专业|投资|理财|医疗|用药|法律)(?:建议|意见|诊断))"
 )
 
 SOURCE = r"(?:原文|原帖|材料|文案|文章|报道|海报|宣传(?:页|文案)?|广告(?:页|文案)?|公告|价目表|商家|销售方|对方|作者)"
@@ -113,7 +138,8 @@ _SOURCE_INTRO = (
     r"的?(?:标签|标注)(?:是|为)?|使用了?|用了|引用了?)[ \t]*[:：]?"
 )
 SOURCE_ATTRIBUTION_RE = re.compile(rf"(?:{_SOURCE_INTRO}|(?:原文|原帖)(?:里|中)?的)[ \t]*(?:>[ \t]*)?$")
-UNQUOTED_SOURCE_RE = re.compile(rf"(?:{_SOURCE_INTRO})[ \t]*[，,]?[ \t]*[^{_CLAUSE_PUNCT}]+")
+UNQUOTED_SOURCE_RE = re.compile(rf"(?P<intro>{_SOURCE_INTRO})[ \t]*[，,]?[ \t]*(?P<body>[^{_CLAUSE_PUNCT}]+)")
+SOURCE_PIVOT_RE = re.compile(r"—|但|不过|然而|只是|我(?:还是建议|建议|认为|觉得|劝|另|还|也|已)")
 SOURCE_ATTRIBUTION_AFTER_RE = re.compile(
     rf"^\s*(?:[，,]\s*)?(?:这(?:句话|句|个标签|个标注))?(?:来自|出自|是){SOURCE}(?:的)?(?:原话|原句|标签|标注)"
 )
@@ -144,7 +170,7 @@ INTERNAL_JARGON_PATTERNS = [
 ADVICE_SECTION_HEADING = re.compile(r"^(?:给你的建议|结论与下一步|建议|下一步)")
 FACT_SECTION_HEADING = re.compile(r"^(?:事实|核查|可信度|滤镜拆解|潜台词|原文要点)")
 FACT_CUE = re.compile(
-    r"(?:^|[，,])\s*[*_> -]*(?:事实(?:上|是|[:：])|(?:核查|原文)[:：]|据(?:原文|原帖)|"
+    r"^\s*[*_> -]*(?:(?:但(?:是)?|不过|然而)\s*)?(?:事实(?:上|是)|据(?:原文|原帖)|"
     r"(?:原文|原帖|材料|文案|文章|报道|报告|海报|宣传页|广告|商家|合同|公告|条款|价目表|记录|厂标|票面|退款规则)"
     r"[^，,:：]{0,14}(?:写|称|说|显示|交代|提到|列出|给出|标明|注明|意味着|只是|并非|不等于|未公布|未披露)|"
     r"(?:票价|售价|有效期|门槛|单次票|按次票|月卡|次卡|名额)(?:是|为|仅限|须|需|不退|[^，,:：]{0,8}元))"
@@ -155,6 +181,8 @@ ADVICE_CUE = re.compile(
     r"(?:先|不妨)(?:问|别急|要|查|核对|确认|拿|等|看|试|向|把|做)|"
     r"(?:按你说|结合你|按你的|根据你的|考虑到你|针对你|你计划).*?(?:建议|可以|不妨|先(?:问|别|不|要|查|看|试)))"
 )
+PROFILE_CLAUSE_BREAK_RE = re.compile(r"[，,；;：:]")
+FACT_LEAD = re.compile(r"\s*[*_> -]*(?:据(?:原文|原帖)|原文(?:写明|写着|说)?|核查|事实(?:上|是)?)\s*")
 
 
 def count_visible_chars(markdown_text: str) -> tuple[int, int]:
@@ -190,6 +218,32 @@ def _author_text(report: str, *, skip_rejections: bool = False) -> str:
     return QUOTED_FRAGMENT_RE.sub(omit, report)
 
 
+def _strip_unquoted_source(report: str, *, keep_intro: bool = False) -> str:
+    def omit(match: re.Match[str]) -> str:
+        body = match["body"]
+        pivot = SOURCE_PIVOT_RE.search(body)
+        return (match["intro"] if keep_intro else "") + "。" + (body[pivot.start():] if pivot else "")
+
+    return UNQUOTED_SOURCE_RE.sub(omit, report)
+
+
+def _has_offline_disclosure(author_report: str) -> bool:
+    # 归因导语属于答复作者，引述正文里的核查声明不属于作者。
+    disclosed = False
+    for clause in CLAUSE_BREAK_RE.split(_strip_unquoted_source(author_report, keep_intro=True)):
+        if OFFLINE_DOUBLE_NEGATION_RE.search(clause) or any(
+            not OFFLINE_NEGATION_RE.search(clause[:m.start()]) for m in AUTHOR_EXTERNAL_CHECK_RE.finditer(clause)
+        ):
+            return False
+        for match in OFFLINE_ACK_RE.finditer(clause):
+            if OFFLINE_NEGATION_RE.search(clause[:match.start()]):
+                continue
+            if AUTHOR_EXTERNAL_CHECK_RE.match(clause[match.end():]):
+                return False
+            disclosed = True
+    return disclosed
+
+
 def _profile_hits(text: str, terms: list[str]) -> tuple[set[str], set[str]]:
     """区分明确事实命中与需复核的合成画像词。"""
     paragraphs = re.split(r"\n\s*\n|\n(?=#{1,6}[ \t])", text)
@@ -214,23 +268,27 @@ def _profile_hits(text: str, terms: list[str]) -> tuple[set[str], set[str]]:
             review.update(hits)
             continue
 
-        # 同段泛用开场不覆盖后续事实；同一句混合线索时交人工复核。
-        sentences = re.split(r"[。！？；;\n]", paragraph)
-        if section == "advice":
-            # 建议标题或句末建议不能覆盖前面独立的事实分句。
-            sentences += [
-                clause for sentence in sentences if ADVICE_CUE.search(sentence) and not PERSONAL_LEAD.search(sentence)
-                for clause in CLAUSE_BREAK_RE.split(sentence) if FACT_CUE.match(clause)
+        located: set[str] = set()
+        for sentence in re.split(r"[。！？!?\n]", paragraph):
+            clauses = PROFILE_CLAUSE_BREAK_RE.split(sentence)
+            # “据原文，”等没有正文的导语归到紧接的分句，不影响其他分句。
+            factual = [
+                bool(FACT_CUE.match(clause) or (i > 0 and FACT_LEAD.fullmatch(clauses[i - 1])))
+                for i, clause in enumerate(clauses)
             ]
-        for term in hits:
-            containing = [sentence for sentence in sentences if term in sentence]
-            if any(FACT_CUE.search(s) and not ADVICE_CUE.search(s) for s in containing):
-                facts.add(term)
-            elif section != "advice" and (
-                not containing or any(FACT_CUE.search(s) or not (ADVICE_CUE.search(s) or PERSONAL_LEAD.search(s)) for s in containing)
-            ):
-                review.add(term)
-    return facts, review
+            mixed = any(factual)
+            for clause, is_fact in zip(clauses, factual):
+                local_hits = {term for term in hits if term in clause}
+                if not local_hits:
+                    continue
+                located.update(local_hits)
+                is_advice = ADVICE_CUE.match(clause) or PERSONAL_LEAD.match(clause)
+                if is_fact and not is_advice:
+                    facts.update(local_hits)
+                elif mixed or (section != "advice" and not is_advice):
+                    review.update(local_hits)
+        review.update(hits - located)
+    return facts, review - facts
 
 
 def lint_report(
@@ -294,11 +352,7 @@ def lint_report(
                 "code": "offline_three_state_label",
                 "message": f"离线模式下禁止打联网三态标签：{'、'.join(hit_labels)}。",
             })
-        if not any(
-            not OFFLINE_NEGATION_RE.search(clause[:m.start()])
-            for clause in CLAUSE_BREAK_RE.split(UNQUOTED_SOURCE_RE.sub("", author_report))
-            for m in OFFLINE_ACK_RE.finditer(clause)
-        ):
+        if not _has_offline_disclosure(author_report):
             warnings.append({
                 "code": "missing_offline_disclosure",
                 "message": "离线报告未说明“未联网核查”或“仅据原文/所贴材料”。",
@@ -306,7 +360,7 @@ def lint_report(
 
     # 3. 高风险边界（医疗、投资理财、法律）
     if high_risk:
-        risk_report = UNQUOTED_SOURCE_RE.sub("", _author_text(normalized, skip_rejections=True))
+        risk_report = _strip_unquoted_source(_author_text(normalized, skip_rejections=True))
         overreach_hit = next((
             m.group(0) for sentence in SENTENCE_BREAK_RE.split(risk_report) for pat in HIGH_RISK_OVERREACH_PATTERNS
             for m in pat.finditer(sentence) if not (
@@ -321,7 +375,8 @@ def lint_report(
                 "message": f"高风险领域疑似替用户做最终决定：「{overreach_hit}」。",
             })
         if not any(
-            not CLAUSE_NEGATION_RE.search(clause[:m.start()])
+            not CLAUSE_NEGATION_RE.search(prefix := clause[:m.start()])
+            and (m["disclaimer"] or not CONSULTATION_NARRATION_RE.search(prefix))
             for clause in CLAUSE_BREAK_RE.split(risk_report) for m in HIGH_RISK_BOUNDARY_RE.finditer(clause)
         ):
             errors.append({
