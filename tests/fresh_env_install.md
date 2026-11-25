@@ -107,14 +107,17 @@ B站 L1 成功样本仍缺（K-08 残留，非本次环境问题）。
 
 ## 八、2026-11-25 候选分支 Windows 本地复验（`v0.1.0` 就绪核验）
 
-日期：2026-11-25。对象：本地候选分支 `autopilot/v010-release-readiness`（M4 就绪核验快照）。在 Windows 本机独立执行以下 4 项硬证据核验：
+日期：2026-11-25。对象：本地候选分支 `autopilot/v010-release-readiness`（M4 就绪核验基准提交 `7bf53aa`；M5-Fix 合并提交 `b41d903` 上复验第 3 项可照抄 `uv run` 离线冒烟与第 4 项分享卡重渲及浏览器交互）。在 Windows 本机独立执行以下 4 项硬证据核验：
 
-1. **分发包归档自包含检验**：运行 `git archive --format=zip HEAD dyz-plain-talk-decoder` 检查归档内容——共包含 **30 个分发文件**（`SKILL.md`、14 份 `references/` 手册、13 个 `scripts/` 运行文件与 2 份 `requirements*.txt`），**0 个缓存、测试、开发配置或隐私文件**混入。
-2. **隔离虚拟环境按 README 安装与自检**：将归档解包至系统临时目录，新建隔离 `venv`（Python 3.14.6），按 `README.md` 运行 `pip install -r requirements.txt`，再执行 `python scripts/check_env.py`——退出码 0，标准输出为单份合法 UTF-8 JSON，`paste_text=true`、`fetch_articles=true`，未安装的可选依赖（视频/ASR）诚实降级并给出普通人可读安装指引，无异常堆栈。
-3. **本机 `uv 0.13.9` 不联网 3 条脚本冒烟**：在离线条件下直接执行 `uv run scripts/check_env.py`、`uv run scripts/lint_report.py --tier fast --offline` 与 `uv run scripts/render_card.py`——3 条命令均以退出码 0 结束，标准输出 JSON 与生成的单页 HTML 卡片结构合规。
-4. **真实 Chromium 浏览器交互验收（`ego-browser`）**：在本地真实 Chromium 浏览器中打开由现行 `render_card.py` 渲染的卡片并实测交互：
+1. **分发包归档自包含检验（基准 `7bf53aa`）**：运行 `git archive --format=zip HEAD dyz-plain-talk-decoder` 检查归档内容——共包含 **30 个分发文件**（`SKILL.md`、14 份 `references/` 手册、13 个 `scripts/` 运行文件与 2 份 `requirements*.txt`），**0 个缓存、测试、开发配置或隐私文件**混入。
+2. **隔离虚拟环境按 README 安装与自检（基准 `7bf53aa`）**：将归档解包至系统临时目录，新建隔离 `venv`（Python 3.14.6），按 `README.md` 运行 `pip install -r requirements.txt`，再执行 `python scripts/check_env.py`——退出码 0，标准输出为单份合法 UTF-8 JSON，`paste_text=true`、`fetch_articles=true`，未安装的可选依赖（视频/ASR）诚实降级并给出普通人可读安装指引，无异常堆栈。
+3. **本机 `uv 0.13.9` 不联网 3 条脚本冒烟（基准 `7bf53aa`，并在 `b41d903` 按下述完整命令复验）**：参考 `.github/workflows/ci.yml:62–67` 的参数与断言风格，在离线条件下直接执行以下 3 条完整命令（`--file` 或通过标准输入管道传入脱敏正文均可）：
+   - `uv run --offline dyz-plain-talk-decoder/scripts/check_env.py`：核对退出码 0，标准输出为单份合法 UTF-8 JSON，且 `python.ok == true`、`capabilities.paste_text == true`（PEP 723 `dependencies = []` 零依赖隔离环境下 `capabilities.fetch_articles == false` 并给出安装指引，与 `.github/workflows/ci.yml:62` 一致）；
+   - `uv run --offline dyz-plain-talk-decoder/scripts/lint_report.py --file <脱敏文本路径> --tier fast --offline`（或按 `.github/workflows/ci.yml:65` 管道抽取 `examples/04-official-notice.md` 分隔线后正文传入 stdin）：核对退出码 0 且 JSON `ok == true`、`errors == []`；
+   - `uv run --offline dyz-plain-talk-decoder/scripts/render_card.py --file <已脱敏分享副本路径> --output <临时输出.html> --title "<标题>" --source "<来源>"`（或按 `.github/workflows/ci.yml:67` 管道抽取 `examples/01-self-audit-readme.md` 分隔线后正文传入 stdin 并显式提供 `--output`）：核对退出码 0、JSON `status == "success"` 且生成非空独立 HTML 文件。
+4. **真实 Chromium 浏览器交互验收（`ego-browser`，基准 `7bf53aa` 首测，`b41d903` 重渲复验）**：在本地真实 Chromium 浏览器中打开由现行 `render_card.py` 渲染的卡片并实测交互：
    - `examples/01-self-audit-readme.html`：历史声明正常展示，0 外链，打印样式（`@media print`）下工具条自动隐藏，点击「只看存疑与避坑」精准隐藏非 caution 条目，点击「看全文」完整恢复，**0 条控制台报错**；
    - `examples/03-prepaid-and-finance.md` 渲染卡片：自然段首段 `lead-item` 筛选保护生效、识别 2 处 caution 条目，**0 条控制台报错**；
    - `examples/05-clean-article-no-nitpick.md` 渲染卡片：干净样本 `caution_items=0` 零误标，**0 条控制台报错**。
 
-**本节复验范围边界**：本复验仅覆盖 Windows 本机离线打包、基础层隔离安装、`uv 0.13.9` 离线冒烟与浏览器本地分享卡交互，**不含**实网抓取、macOS/Linux 实机安装、多宿主自然触发、`.claude-plugin/` 插件市场实装或真实 ASR 端到端转写。
+**本节复验范围边界**：本复验仅覆盖 Windows 本机离线打包、基础层隔离安装、`uv 0.13.9` 离线冒烟与浏览器本地分享卡交互，**不含**实网抓取、macOS/Linux 实机安装、多宿主自然触发、`.claude-plugin/` 插件市场实装、真实 ASR 端到端转写或候选分支远端 CI。
