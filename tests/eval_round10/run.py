@@ -18,6 +18,7 @@ import random
 import re
 import sys
 from typing import Any
+from unicodedata import category
 from uuid import uuid4
 
 HERE = Path(__file__).resolve().parent
@@ -42,6 +43,22 @@ EXPLICIT_ID = re.compile(
     r"(?i)(?<![a-z0-9])(?:candidate|bare|Q(?:0[1-9]|[12]\d|3[0-2]))(?![a-z0-9])|"
     r"候选(?:臂|组首答|首答|答卷)|裸模(?:型)?(?:臂|组|首答|答卷)?|存档(?:臂|首答)"
 )
+FAMILY_NAMES = {
+    "openai": "OpenAI", "google": "Google", "xai": "xAI", "deepseek": "DeepSeek", "anthropic": "Anthropic",
+    "qwen": "Qwen", "meta": "Meta", "mistral": "Mistral", "moonshot": "Moonshot", "zhipu": "Zhipu",
+}
+FAMILY_ALIASES = {
+    "chatgpt": "openai", "gpt": "openai", "codex": "openai", "googledeepmind": "google", "deepmind": "google",
+    "gemini": "google", "grok": "xai", "claude": "anthropic", "alibaba": "qwen", "alibabaqwen": "qwen",
+    "tongyiqwen": "qwen", "metallama": "meta", "llama": "meta", "mistralai": "mistral", "moonshotai": "moonshot",
+    "kimi": "moonshot", "zhipuai": "zhipu", "glm": "zhipu", "bigmodel": "zhipu",
+}
+MODEL_FAMILY_PREFIX = re.compile(
+    r"(?P<openai>(?:gpt|chatgpt|o[134](?:mini|pro|preview)?|codex)(?![a-z]))|(?P<google>gemini|gemma)|(?P<xai>grok)|"
+    r"(?P<deepseek>deepseek)|(?P<anthropic>claude)|(?P<qwen>qwen)|(?P<meta>llama)|"
+    r"(?P<mistral>mistral|mixtral|codestral)|(?P<moonshot>kimi|moonshot)|(?P<zhipu>zhipu|chatglm|glm)"
+)
+UNIDENTIFIED_FAMILY = "未识别家族"
 
 
 def digest(data: bytes) -> str:
@@ -366,14 +383,32 @@ def exact(row: Any, fields: str) -> None:
     require(isinstance(row, dict) and row.keys() == set(fields.split()), f"字段必须为：{fields}")
 
 
+def canonicalize_family(raw: str) -> str:
+    key = re.sub(r"[\s_/-]+", "", raw).casefold()
+    key = FAMILY_ALIASES.get(key, key)
+    return key if key in FAMILY_NAMES else "unknown"
+
+
+def infer_model_family(model: str, agent: str) -> str | None:
+    # 模型比通用客户端更明确；先看命名空间后的模型名，再回退到 agent。
+    for raw in (model, agent):
+        for name in reversed(re.split(r"[/:]", raw.casefold())):
+            if match := MODEL_FAMILY_PREFIX.match(name.strip()):
+                return match.lastgroup
+    return None
+
+
 def read_actual_readers(study: Study, path: Path) -> tuple[JSON, str]:
     raw = path.read_bytes()
     readers = parse(raw)
     exact(readers, " ".join(study.protocol["blind_readers"]))
-    for row in readers.values():
+    for reader, row in readers.items():
         exact(row, "agent model family")
         require(all(nonempty(value) and re.fullmatch(r"[\w./:+() -]{1,128}", value) for value in row.values()),
                 "实际通道只接受 agent/model/family 名称，不得填写密钥或其他信息")
+        inferred = infer_model_family(row["model"], row["agent"])
+        require(inferred is None or canonicalize_family(row["family"]) == inferred,
+                f"{reader} 的 family 与 model/agent 推断家族不一致（应为 {inferred}）")
     return readers, digest(raw)
 
 
@@ -386,8 +421,10 @@ def bits(values: Any, size: int) -> bool:
 
 
 def check_quote(quote: Any, texts: list[str]) -> None:
-    require(isinstance(quote, str) and sum(ch.isprintable() and not ch.isspace() for ch in quote) >= 4,
-            "引句去除空白后至少需 4 个可见字符")
+    require(isinstance(quote, str) and sum(
+        ch.isprintable() and not ch.isspace() and category(ch) not in ("Mn", "Me")
+        for ch in re.sub(r"[`*_~]", "", quote)
+    ) >= 4, "引句去除空白及 Markdown 排版后至少需 4 个可见字符")
     require(any(quote.replace("\r\n", "\n") in text.replace("\r\n", "\n") for text in texts),
             "引句未出现在指定原答（需逐字引用）")
 
@@ -658,12 +695,12 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
         ("overall", ["all"]), ("by_question", study.subset), ("by_slot_planned", [r["family"] for r in readers.values()]),
         ("by_group", ["anchors", "new"]), ("by_position", ["A", "B"]), ("same_text_cluster", ["half_weight", "other"]),
     )}
-    family_names: dict[str, str] = {}
-    actual_families = {}
+    generator = canonicalize_family(study.protocol["generator"]["family"])
+    actual_families: dict[str, str] = {}
     for reader, row in (actual_readers or {}).items():
-        family = row["family"].strip()
-        actual_families[reader] = family_names.setdefault(family.casefold(), family)
-    actual_counts = {family: Counter(empty_tally) for family in family_names.values()}
+        family = canonicalize_family(row["family"])
+        actual_families[reader] = generator if infer_model_family(row["model"], row["agent"]) == generator else family
+    actual_counts = {family: Counter(empty_tally) for family in actual_families.values()}
     reasons = {outcome: Counter(dict.fromkeys((*REASONS, "missing"), 0)) for outcome in ("W", "L")}
     detail = []
     for key, (meta, _) in index.items():
@@ -682,8 +719,9 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
         entry = {"qid": qid, "reader": reader, "family_planned": family, "candidate_position": position,
                  "outcome": outcome, "original": vote, "reason_check": review}
         if actual_readers is not None:
-            entry["actual_family"] = actual_families[reader]
-            actual_counts[actual_families[reader]][outcome] += 1
+            actual_family = actual_families[reader]
+            entry["actual_family"] = FAMILY_NAMES.get(actual_family, UNIDENTIFIED_FAMILY)
+            actual_counts[actual_family][outcome] += 1
         detail.append(entry)
     totals = counts["overall"]["all"]
     wins, losses = totals["W"], totals["L"]
@@ -706,10 +744,9 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
     if actual_readers is None:
         checks["winning_families"] = {"actual": None, "target": c["winning_families"], "op": ">=", "total": None, "pass": False}
     else:
-        generator = study.protocol["generator"]["family"].strip().casefold()
-        counts["by_actual_family"] = actual_counts
+        counts["by_actual_family"] = {FAMILY_NAMES.get(family, UNIDENTIFIED_FAMILY): tally for family, tally in actual_counts.items()}
         strict = counts["strict_non_generator_families"] = {
-            family: tally for family, tally in actual_counts.items() if family.casefold() != generator
+            FAMILY_NAMES[family]: tally for family, tally in actual_counts.items() if family in FAMILY_NAMES and family != generator
         }
         checks["winning_families"] = metric(sum(tally["W"] > tally["L"] for tally in strict.values()), c["winning_families"], len(strict))
     weighted = {key: counts["same_text_cluster"]["half_weight"][key] / 2 + counts["same_text_cluster"]["other"][key] for key in totals}
@@ -773,8 +810,10 @@ def markdown(report: JSON) -> str:
     lines.extend(["", f"计划槽位（by_slot_planned）净胜 {planned['actual']}/{planned['total']}；仅供对照，不计入实际异构家族门。"])
     if "by_actual_family" in counts:
         strict = counts["strict_non_generator_families"]
-        excluded = counts["by_actual_family"].keys() - strict.keys()
+        excluded = counts["by_actual_family"].keys() - strict.keys() - {UNIDENTIFIED_FAMILY}
         lines.append(f"实到非生成者家族：{'、'.join(strict) or '无'}；与生成者同族、不计入异构门：{'、'.join(sorted(excluded)) or '无'}。")
+        if UNIDENTIFIED_FAMILY in counts["by_actual_family"]:
+            lines.append("未识别家族的票据保留在全席统计，不计入异构家族净胜的分子或分母。")
     else:
         lines.append("未封存实际通道，计划槽位不代表实际参评家族，异构家族门未验证。")
     lines.extend(["", "## 双口径篇幅", "", "| 臂 | 档位 | 汉字达标 | 可见字符达标 |", "|---|---|---:|---:|"])

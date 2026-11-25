@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -149,7 +150,7 @@ class TestLintReport:
     def test_plain_paragraph_report_checks_profile_leak_in_facts(self):
         """推荐的无 H2 自然段写法（写法 A）同样必须拦截事实段泄露画像（P1-4）。"""
         leaked = (
-            "可以继续了解，但先别急着付钱。针对你在杭州预算3000元的情况，厂标速度只是空载极值，不是日常表现。"
+            "可以继续了解，但先别急着付钱。厂标写明杭州预算3000元对应的速度只是空载极值，不是日常表现。"
             + "关键条款和对比口径都还有缺口，需要拿到书面报价与活动细则。" * 4
             + "\n\n"
             "上月意向登记不是成交量，定金排序和退费规则均未写清。以上仅据商家自述，未联网核查。"
@@ -226,6 +227,8 @@ class TestLintReport:
         "报告显示星砂预算是3000元。",
         "原文写明星砂预算是3000元，建议先核对。",
         "据原文，星砂预算是3000元。",
+        "原文写明：星砂预算是3000元。",
+        "按你说的时间先问店员，但原文写明星砂预算是3000元。",
     ))
     def test_advice_heading_does_not_exempt_profile_leak_in_facts(self, fact):
         result = lr.lint_report(f"## 给你的建议\n\n{fact}", tier="fast", profile_terms=["星砂预算"])
@@ -236,6 +239,25 @@ class TestLintReport:
         text = "## 给你的建议\n\n按你说的星砂预算，先问书面报价。\n原文写明周末开放，没说是否退费。"
         result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
         assert result["ok"] is True and result["warnings"] == []
+
+    @pytest.mark.parametrize("separator", ("，", ",", "；", ";", "：", ":"))
+    def test_personal_lead_cannot_hide_factual_clause(self, separator):
+        text = f"## 给你的建议\n\n按你说的时间先问店员{separator}原文写明星砂预算是3000元。"
+        result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
+        assert result["ok"] is False
+        assert {e["code"] for e in result["errors"]} == {"profile_leak_in_facts"}
+
+    @pytest.mark.parametrize("heading", ("", "## 给你的建议\n\n"))
+    def test_fact_in_same_sentence_without_profile_only_warns(self, heading):
+        result = lr.lint_report(f"{heading}按你说的星砂预算，原文写明周末开放。",
+                                tier="fast", profile_terms=["星砂预算"])
+        assert result["ok"] is True and result["errors"] == []
+        assert {w["code"] for w in result["warnings"]} == {"profile_isolation_needs_review"}
+
+    def test_profile_can_be_used_to_ask_about_document(self):
+        text = "## 给你的建议\n\n按你说的星砂预算，建议先问价目表是否包含周末加价。"
+        result = lr.lint_report(text, tier="fast", profile_terms=["星砂预算"])
+        assert result["ok"] is True and result["errors"] == result["warnings"] == []
 
     def test_ambiguous_profile_term_requests_review_without_echoing(self):
         for text in (
@@ -298,6 +320,13 @@ class TestLintReport:
         ("没有建议你~~直接~~把这只基金买了。请咨询持牌投顾。", None),
         ("海报鼓吹建议你买入这只基金；请咨询持牌投顾。", None),
         ("原文：‘建议你买入这只基金’。请咨询持牌投顾。", None),
+        ("原文写着“建议买入”。请咨询持牌投顾。", None),
+        ("并非投资建议。", None),
+        ("并非医疗建议。", None),
+        ("并非法律意见。", None),
+        ("并不算投资建议。", None),
+        ("这已经不是法律意见。", None),
+        ("我建议咨询执业医生。", None),
         ("建议你**买入**这只基金。请咨询持牌投顾。", "high_risk_overreach"),
         ("建议你把这只基金买了。请咨询持牌投顾。", "high_risk_overreach"),
         ("直接把这只基金买了。请咨询持牌投顾。", "high_risk_overreach"),
@@ -307,22 +336,41 @@ class TestLintReport:
         ("这不是咨询执业医师。", "missing_high_risk_boundary"),
         ("并非请咨询持牌投顾。", "missing_high_risk_boundary"),
         ("我并未咨询医生。", "missing_high_risk_boundary"),
+        ("我已经咨询医生。", "missing_high_risk_boundary"),
+        ("曾请执业医生确认。", "missing_high_risk_boundary"),
         ("不建议你先咨询执业医生。", "missing_high_risk_boundary"),
         ("请核对这个医生的身份。", "missing_high_risk_boundary"),
         ("先咨询。安排复查的执业医生，周三休息。", "missing_high_risk_boundary"),
         ("请咨询；专业医生在那里。", "missing_high_risk_boundary"),
         ("建议核对\n医生的身份。", "missing_high_risk_boundary"),
         ("广告写着请咨询持牌投顾。", "missing_high_risk_boundary"),
+        ("没有必要咨询持牌投顾。", "missing_high_risk_boundary"),
+        ("没必要咨询持牌投顾。", "missing_high_risk_boundary"),
+        ("无需咨询执业医生。", "missing_high_risk_boundary"),
+        ("无需专门咨询持牌专业人士。", "missing_high_risk_boundary"),
+        ("不用咨询医生。", "missing_high_risk_boundary"),
+        ("不需要咨询律师。", "missing_high_risk_boundary"),
     ))
     def test_high_risk_review_regressions(self, text, code):
         result = lr.lint_report(text, tier="fast", high_risk=True)
+        assert result["ok"] is (code is None), (text, result)
         assert {e["code"] for e in result["errors"]} == ({code} if code else set()), (text, result)
+
+    @pytest.mark.parametrize("judgment", (
+        "——但我建议你买入", "—建议你买入", "但建议你买入", "但是建议你买入", "不过建议你买入", "然而建议你买入",
+        "只是建议你买入", "我建议你买入", "我认为应该买入", "我觉得你该买入", "我劝你买入", "我还是建议你买入",
+    ))
+    def test_unquoted_source_does_not_hide_authors_risk_judgment(self, judgment):
+        text = f"材料写着风险自担{judgment}这只基金。请咨询持牌投顾。"
+        result = lr.lint_report(text, tier="fast", high_risk=True)
+        assert result["ok"] is False
+        assert {e["code"] for e in result["errors"]} == {"high_risk_overreach"}
 
     def test_r10c_q32_professional_boundary(self):
         answer = (ROOT / "tests/eval_round10/answers/candidate/Q32.md").read_text(encoding="utf-8")
         assert "请先咨询安排复查的**执业医生**：" in answer
         result = lr.lint_report(answer, tier="fast", high_risk=True, offline=True)
-        assert result["ok"] is True and result["warnings"] == [], result
+        assert result["ok"] is True and result["errors"] == result["warnings"] == [], result
 
     def test_plain_offline_disclosure_distinguishes_local_review_from_search(self):
         for text in (
@@ -365,6 +413,7 @@ class TestLintReport:
         ("只看内容，五次票更便宜。", False),
         ("光看说明即可，我还对照了官网。", False),
         ("仅按说明操作。", False),
+        ("按一般说明操作。", False),
         ("单看文字无法决定。", False),
         ("并非未核查，我查过官网报价。", False),
         ("不是没查过，我还看了门店价格。", False),
@@ -372,6 +421,17 @@ class TestLintReport:
         ("材料写着，未联网核查也能下单。", False),
         ("不只按这张价目表里的数字，我也看了店内报价。", False),
         ("不只是按这张价目表，我也看了店内报价。", False),
+        ("只看这张海报，我另外也核对了官网。", False),
+        ("只看这张海报并核对了官网。", False),
+        ("按榆格公共底片馆的两期公告，周三改为预约。我查过外部信息。", False),
+        ("单看这张海报即可——我也核对了官网。", False),
+        ("并非完全未核查，我查过官网报价。", False),
+        ("不是完全没查，我对照了外部报价。", False),
+        ("只看这张海报。不是完全没核查。", False),
+        ("只看这张海报。并非完全未核查。", False),
+        ("并非按榆格公共底片馆的两期公告。", False),
+        ("这不是折苇 T4 的厂方说明。", False),
+        ("我没有读折苇 T4 的厂方说明。", False),
         ("按经销商这张活动单，合计 780 元。", True),
         ("按这张工作单的约定，这一班的工钱是税前 150 元。", True),
         ("蓝栖这份经营简报里，营收规模扩大。", True),
@@ -382,11 +442,43 @@ class TestLintReport:
         ("仅凭这份介绍，还不确定能不能退费。", True),
         ("仅按厂方材料计算，未回答能不能退费。", True),
         ("材料写着‘仅据原文就能下单’；这次没外查。", True),
+        ("只看这张海报，材料写着‘我另外也核对了官网’。", True),
+        ("只看这张海报，没有核对官网；建议先核对官网。", True),
+        ("只看这张海报，场馆核对过官网。", True),
+        ("价目表写明五次起划算。", True),
+        ("按榆格馆二期招募，本周可以报名。", True),
+        ("按蓝栖第二期细则，周末不开放。", True),
+        ("按首期价目表，五次起划算。", True),
+        ("讨论板上的这条帖在招募新人。", True),
+        ("蓝栖的活动单写明了报名日期。", True),
+        ("蓝栖的工作单明确列出工钱。", True),
+        ("蓝栖的经营简报称营收扩大。", True),
     ))
     def test_offline_review_regressions(self, text, disclosed):
         result = lr.lint_report(text, tier="fast", offline=True)
         assert result["ok"] is True, result
         assert {w["code"] for w in result["warnings"]} == (set() if disclosed else {"missing_offline_disclosure"}), (text, result)
+
+    @pytest.mark.parametrize("qid", ("Q01", "Q02", "Q20"))
+    def test_r10c_named_source_acknowledged_without_extra_disclaimer(self, qid):
+        answer = (ROOT / "tests/eval_round10/answers/candidate" / f"{qid}.md").read_text(encoding="utf-8")
+        result = lr.lint_report(answer, tier="standard", offline=True)
+        assert result["ok"] is True, result
+        assert "missing_offline_disclosure" not in {w["code"] for w in result["warnings"]}, result
+
+    @pytest.mark.parametrize("text", (
+        "的" * 20000 + "原文是建议你买入这只基金。",
+        "只" * 5000 + "看内容。",
+        "材料写着" * 2000,
+        "按榆格底片馆但未发布。" * 2000,
+        "一行，" + " " * 20000 + "没有来源。",
+    ))
+    def test_gate_patterns_do_not_excessively_backtrack(self, text):
+        start = perf_counter()
+        result = lr.lint_report(text, tier="deep", high_risk=True, offline=True)
+        elapsed = perf_counter() - start
+        assert {w["code"] for w in result["warnings"]} == {"missing_offline_disclosure"}
+        assert elapsed < 2, elapsed
 
     def test_offline_only_exempts_labels_clearly_from_source(self):
         for label in lr.THREE_STATE_LABELS:

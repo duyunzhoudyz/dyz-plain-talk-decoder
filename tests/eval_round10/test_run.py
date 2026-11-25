@@ -302,10 +302,17 @@ class TestRound10(unittest.TestCase):
         self.assertIn("JSON 重复字段", " ".join(self.validate()["errors"]))
 
     def test_quote_minimum_ignores_spacing_and_invisible_characters(self):
-        for quote in ("的", "的 \n \t", "的\u200b\u200b\u200b"):
+        for quote in ("的", "的 \n \t", "的\u200b\u200d\ufeff", "的\ufe0f\u034f\ufe0f",
+                      "**的**", "__的__", "`的`", "~~的~~", "*的*", "_的_", "**_*的\u200b*__~~"):
             with self.subTest(quote=quote), self.assertRaisesRegex(ValueError, "至少需 4 个可见字符"):
                 run.check_quote(quote, [quote + "是原答的一部分。"])
         run.check_quote("场 地\n规 则", ["以场 地\r\n规 则为准。"])
+        run.check_quote("**场地规则**", ["以**场地规则**为准。"])
+        quote = "请先咨询安排复查的**执业医生**"
+        answer = (run.HERE / "answers/candidate/Q32.md").read_text(encoding="utf-8")
+        run.check_quote(quote, [answer])
+        with self.assertRaisesRegex(ValueError, "引句未出现在指定原答"):
+            run.check_quote(quote.replace("**", ""), [answer])
 
     def test_reveal_computes_frozen_gates_and_preserves_raw_votes(self):
         self.seed_packs(archive=True)
@@ -332,9 +339,9 @@ class TestRound10(unittest.TestCase):
 
     def test_actual_generator_family_win_cannot_pass_heterogeneous_gate(self):
         self.seed_packs()
-        self.seed_submissions(close_reader="J2")
+        records = self.seed_submissions(close_reader="J2")
         readers = {**self.study.protocol["blind_readers"],
-                   "J3": {"agent": "omp", "model": "congming/gpt-6.2-astra", "family": "OpenAI"}}
+                   "J3": {"agent": "omp", "model": "congming/gpt-6.2-astra", "family": "Open AI"}}
         save(self.actual_readers, readers)
         self.assertTrue(self.validate(seal=True)["sealed"])
         report = self.reveal()
@@ -344,13 +351,79 @@ class TestRound10(unittest.TestCase):
         self.assertEqual(c["by_slot_planned"]["checks"]["winning_families"]["actual"], 2)
         self.assertEqual(tallies["by_slot_planned"]["DeepSeek"], tallies["by_actual_family"]["OpenAI"])
         self.assertGreater(tallies["by_actual_family"]["OpenAI"]["W"], tallies["by_actual_family"]["OpenAI"]["L"])
+        self.assertEqual([tallies["overall"]["all"][key] for key in ("W", "L")], [21, 13])
         self.assertEqual(set(tallies["strict_non_generator_families"]), {"Google", "xAI"})
         self.assertEqual(c["checks"]["winning_families"], run.metric(1, 2, 2))
         self.assertFalse(c["pass"] or report["all_three_pass"])
+        self.assertEqual(report["preference"]["actual_readers"], readers)
+        self.assertEqual([entry["original"] for entry in report["preference"]["entries"]], records["preference"])
         md = run.markdown(report)
         self.assertIn("| by_actual_family | OpenAI | 8 | 4 |", md)
         self.assertIn("与生成者同族、不计入异构门：OpenAI", md)
         self.assertNotIn("DeepSeek", md)
+
+    def test_canonical_family_keys_and_model_inference(self):
+        for raw, key in (
+            ("Open AI", "openai"), ("open-ai", "openai"), ("OPEN_/AI\t", "openai"), ("x-ai", "xai"),
+            ("x AI", "xai"), ("Deep Seek", "deepseek"), ("Google DeepMind", "google"), ("claude", "anthropic"),
+            ("Alibaba Qwen", "qwen"), ("Meta-Llama", "meta"), ("Mistral AI", "mistral"),
+            ("Moonshot AI", "moonshot"), ("Zhipu AI", "zhipu"), ("other", "unknown"), ("n/a", "unknown"),
+        ):
+            self.assertEqual(run.canonicalize_family(raw), key, raw)
+        for model, key in (
+            ("congming/gpt-6.2-astra", "openai"), ("o1-preview", "openai"), ("o3mini", "openai"), ("o4-mini", "openai"),
+            ("gemini-4-neon", "google"), ("grok-4.7", "xai"), ("deepseek-v4.1-flash", "deepseek"),
+            ("claude-opus", "anthropic"), ("Tongyi/Qwen3", "qwen"), ("meta/llama-4", "meta"),
+            ("Mistral-Large", "mistral"), ("moonshotai/kimi-k2", "moonshot"), ("GLM-5", "zhipu"),
+        ):
+            self.assertEqual(run.infer_model_family(model, "omp"), key, model)
+        self.assertEqual(run.infer_model_family("unlisted-model", "codex"), "openai")
+        self.assertIsNone(run.infer_model_family("unlisted-model", "omp"))
+
+    def test_actual_readers_reject_family_mismatch_before_seal(self):
+        self.seed_packs()
+        for model, agent, family in (
+            ("congming/gpt-6.2-astra", "omp", "unknown"), ("congming/gpt-6.2-astra", "omp", "Deep Seek"),
+            ("grok-4.7", "omp", "n/a"), ("gemini-4-neon", "omp", "x-ai"),
+            ("unlisted-model", "codex", "other"),
+        ):
+            readers = {**self.study.protocol["blind_readers"], "J3": {"agent": agent, "model": model, "family": family}}
+            save(self.actual_readers, readers)
+            with self.assertRaisesRegex(ValueError, "J3 的 family 与 model/agent 推断家族不一致"):
+                self.validate(seal=True)
+            self.assertFalse(self.seal.exists())
+
+    def test_unknown_and_aliased_families_never_inflate_gate(self):
+        self.seed_packs()
+        self.seed_submissions(close_reader="J2")
+        # 复用已校验的原票，检查不同实到渠道声明不会把同一批票变成异构通过。
+        _, index, _, _ = run.check_packs(self.study, self.answers, self.packs, self.private, None)
+        rows, state, _ = run.collect(self.study, index, self.submissions)
+        self.assertTrue(state["ok"])
+        for family in ("unknown", "other", "n/a", "Virtual Lab", "Google DeepMind"):
+            readers = {**self.study.protocol["blind_readers"],
+                       "J3": {"agent": "omp", "model": "unlisted-model", "family": family}}
+            save(self.actual_readers, readers)
+            validated, _ = run.read_actual_readers(self.study, self.actual_readers)
+            gate, report = run.preference_report(self.study, index, rows, validated)
+            counts = report["counts"]
+            self.assertTrue(gate["by_slot_planned"]["pass"])
+            self.assertFalse(gate["pass"])
+            self.assertEqual(gate["checks"]["winning_families"], run.metric(1, 2, 2))
+            self.assertEqual(set(counts["strict_non_generator_families"]), {"Google", "xAI"})
+            if family == "Google DeepMind":
+                self.assertEqual(counts["by_actual_family"]["Google"]["W"], 16)
+            else:
+                self.assertEqual(counts["by_actual_family"][run.UNIDENTIFIED_FAMILY]["W"], 8)
+        # 即使调用计分函数时绕过入口校验，模型已知与生成者同族的票也不能计入异构门。
+        readers["J3"]["model"] = "congming/gpt-6.2-astra"
+        gate, report = run.preference_report(self.study, index, rows, readers)
+        self.assertEqual(report["counts"]["by_actual_family"]["OpenAI"]["W"], 8)
+        self.assertEqual(gate["checks"]["winning_families"], run.metric(1, 2, 2))
+        readers["J3"].update(model="unlisted-model", family="other")
+        save(self.actual_readers, readers)
+        self.assertTrue(self.validate(seal=True)["sealed"])
+        self.assertIn("未识别家族的票据保留在全席统计，不计入异构家族净胜的分子或分母", run.markdown(self.reveal()))
 
     def test_actual_readers_require_exact_sealed_bytes(self):
         self.seed_packs()
