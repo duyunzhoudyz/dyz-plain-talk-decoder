@@ -69,7 +69,7 @@
    python scripts/check_env.py
    ```
 
-**方式 B：用 `uv` 免虚拟环境试跑（实验性；本机 Windows 已用 `uv 0.13.9` 完成 3 条离线脚本冒烟，见 [`tests/fresh_env_install.md`](tests/fresh_env_install.md) 第八节；远端 GitHub Actions 三系统 `uv run` 冒烟 [run 45428977869](https://github.com/duyunzhoudyz/dyz-plain-talk-decoder/actions/runs/45428977869) 对应 `main` 基线提交 `3b245db`，当前候选分支尚未推送触发远端 CI，也不等于用户电脑全宿主实装）**
+**方式 B：用 `uv` 免虚拟环境试跑（实验性；本机 Windows 已用 `uv 0.13.9` 完成 3 条离线脚本冒烟，见 [`tests/fresh_env_install.md`](tests/fresh_env_install.md) 第八节；`main` 提交 `bd6a083` 已通过远端 GitHub Actions 三系统 `uv run` 冒烟 [run 45569395548](https://github.com/duyunzhoudyz/dyz-plain-talk-decoder/actions/runs/45569395548)，12/12 全部通过；CI 冒烟也不等于用户电脑全宿主实装）**
 
 1. 安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)；
 2. 五个入口脚本（`fetch_content.py`、`check_env.py`、`cleanup_cache.py`、`lint_report.py`、`render_card.py`）均已内置 PEP 723 依赖声明，可直接运行：
@@ -153,7 +153,7 @@ python -m pip install "faster-whisper>=1.0"
 
 ### 已实际验证
 
-- **离线自动化测试与基线 CI**：当前候选分支在本地 Windows（Python 3.14）运行离线单元测试全部通过（另有 9 条 `live` 实网用例默认跳过）。远端 GitHub Actions（Ubuntu / macOS / Windows × Python 3.10 / 3.12 / 3.14 离线测试，外加三系统 `uv run` 冒烟，[run `45428977869`](https://github.com/duyunzhoudyz/dyz-plain-talk-decoder/actions/runs/45428977869)，12/12 全部通过）**仅对应 `main` 基线提交 `3b245db`**；本候选分支尚未推送触发远端 CI，且 CI 不等于真实用户电脑上的全宿主实装。
+- **离线自动化测试与远端 CI**：`main` 提交 `bd6a083` 已在本地 Windows（Python 3.14）与远端 GitHub Actions（Ubuntu / macOS / Windows × Python 3.10 / 3.12 / 3.14 全量 458 条离线单元测试与发布包自包含校验，外加三系统 `uv run` 冒烟，[run `45569395548`](https://github.com/duyunzhoudyz/dyz-plain-talk-decoder/actions/runs/45569395548)，**12/12 全部通过**；另有 9 条 `live` 实网用例默认跳过），且 CI 不等于真实用户电脑上的全宿主实装。
 - **2026-11-25 候选分支 Windows 本地复验**：详见 [`tests/fresh_env_install.md`](tests/fresh_env_install.md) 第八节，包含 4 项本机实测——① `git archive` 分发归档自包含校验（30 个分发文件，0 缓存/测试/隐私文件）；② 临时目录解包并新建隔离 `venv`（Python 3.14.6）按本 README 安装基础依赖，`check_env.py` 退出码 0、单份 UTF-8 JSON、`paste_text=true`、`fetch_articles=true`、可选依赖缺失诚实降级无堆栈；③ 本机 `uv 0.13.9` 不联网 3 条冒烟（`check_env.py` / `lint_report.py` / `render_card.py`）均退出码 0 且输出合规；④ 真实 Chromium 浏览器交互验证分享卡片（`01` 历史声明、0 外链、打印态隐藏工具条、「只看存疑与避坑」与「看全文」切换正常且 0 控制台报错；`03` 首段保护与 2 处注意项 0 报错；`05` `caution_items=0` 零误标）。该复验仅覆盖 Windows 本地离线/基础安装与分享卡交互，不替代实网、跨系统、多宿主触发或插件市场实装。
 - **Windows 历史实装与单点联调（2026-11-20）**：见 [`tests/fresh_env_install.md`](tests/fresh_env_install.md) 第一至六节——曾在同一台 Windows 设备的新 Python 3.14 虚拟环境跑通图文抓取（公众号、博客）、YouTube L1 字幕（两次耗时 6.5 秒与 16.5 秒，不承诺 10 秒内完成）、缺依赖降级、B站语音转写、百炼云端转写与本地画像全周期。上述记录仅代表当时的单机结果，不代表今天的实网可用率，也不等于所有 Windows 安装或真实宿主自动发现均已通过。
 - **多轮离线智能体盲测（R8 / R9 / R10）**：已完成三轮基于冻结 R8 题面的已知题回归与盲读（非未见新题泛化），最新结果归档于 [R10 评测报告](tests/eval_round10/results.md)（历史基线见 [R8](tests/eval_round8/results.md) 与 [R9](tests/eval_round9/results.md)）。R10 终轮（R10c）核心亮点：匿名双臂偏好达到 **21 胜 15 负**（**9/12** 题两家独胜；严格非生成者异构 2 家族 Google + xAI 合计 **16 胜 8 负**；原锚点 4 题 8 胜 4 负、Q23 3:0；有据胜票率 90.5%），并保持 **0/32 硬否决、0 确认回归、32/32 主模式、20/20 选卡、6/6 控制组、4/4 Q09 证据链**与 **2/2 付款专项**。**同时如实声明：R10c 预注册 A、B、C 三门均未通过（0/3）**——门 A 主评条件 96/102、深度汉字 2/3、汉字 30/32、可见字 31/32；门 B 复述 75/108 低于裸模型 83/108（R10b 87/108 仅达总分子项阈值，门 B 整体同样未通过）；门 C 全 3 席净票 +6、净胜家族 1/3——且第 3 盲读席原计划 DeepSeek 因本机密钥 401 失效改由 `gpt-6.2-astra` 独立会话补位（不计为第三非 OpenAI 家族）。**「中文文本发布候选」≠「预注册工程门全通」**，详见报告明细。
@@ -161,7 +161,6 @@ python -m pip install "faster-whisper>=1.0"
 ### 尚未实测 / 本轮未执行（不因 `v0.1.0` 口径变成已测）
 
 - **真人盲读**：按项目决定不安排真人盲读，历史 R8 与本轮均保持 **0/12**，绝不以智能体盲读冒充真人验收。
-- **候选分支远端 CI**：当前候选分支尚未推送触发远端 GitHub Actions CI（上文 run `45428977869` 仅覆盖 `main` 基线提交 `3b245db`）。
 - **macOS / Linux 实机安装**：未在真实 macOS / Linux 机器上按本 README 安装并试用。
 - **B站 L1 公开软字幕**：仍缺公开软字幕实网成功样本（仅有离线解析与质量闸门单测）。
 - **小宇宙实网单集抓取**：仅有离线样本测试，未在真实网络下实测单集页面。

@@ -2,7 +2,7 @@
 
 > 本文档回答“怎么做、按什么顺序做、怎样算完成”。需求以 `plain_talk_decoder_skill_prd.md` 为准，施工规矩以 `AGENTS.md` 为准。
 >
-> **当前状态：Phase 1–4 已有交付物；施工勾选不能代替 PRD 验收。当前收口范围为 `v0.1.0` 中文文本发布候选（「中文文本发布候选」≠「预注册工程门全通」）：用户确认不安排真人盲读（历史 R8 保持 0/12，本轮 0/12）；R10 三轮智能体匿名盲读与已知题 32 题回归已完成并归档于 [`tests/eval_round10/results.md`](../tests/eval_round10/results.md)（R10c 偏好 21/36、9/12 题两家独胜、非生成者异构 2 家族 16/24、0/32 硬否决、0 确认回归，但预注册 A、B、C 三门均未通过 [0/3]：门 A 主评 96/102、深度汉字 2/3、可见字 31/32；门 B 复述 75/108 低于裸模型 83/108；门 C 净票 +6、净胜家族 1/3；J3 因本机 DeepSeek 密钥失效由 `gpt-6.2-astra` 补位，均已透明分列）；2026-11-25 候选分支 Windows 本地复验（30 文件 `git archive`、隔离 venv 安装、`uv 0.13.9` 三条不联网冒烟、Chromium 分享卡交互 0 报错）已完成并归档于 [`tests/fresh_env_install.md`](../tests/fresh_env_install.md) 第八节；远端 CI run `45428977869`（12/12）仅对应 `main` 基线提交 `3b245db`，本候选分支尚未推送触发远端 CI；真人 0/12、macOS/Linux 实装、B站 L1 公开软字幕、小宇宙实网、本地 `.mp3/.mp4` 实机 ASR、T2 实网、多宿主自然触发、插件市场实装、发布前 T1 实网冒烟、候选分支远端 CI 与内置 OCR 均未实测并单列，不以 AI 评分或离线测试冒充。**
+> **当前状态：Phase 1–4 已有交付物；施工勾选不能代替 PRD 验收。当前收口范围为 `v0.1.0` 中文文本发布候选（「中文文本发布候选」≠「预注册工程门全通」）：用户确认不安排真人盲读（历史 R8 保持 0/12，本轮 0/12）；R10 三轮智能体匿名盲读与已知题 32 题回归已完成并归档于 [`tests/eval_round10/results.md`](../tests/eval_round10/results.md)（R10c 偏好 21/36、9/12 题两家独胜、非生成者异构 2 家族 16/24、0/32 硬否决、0 确认回归，但预注册 A、B、C 三门均未通过 [0/3]：门 A 主评 96/102、深度汉字 2/3、可见字 31/32；门 B 复述 75/108 低于裸模型 83/108；门 C 净票 +6、净胜家族 1/3；J3 因本机 DeepSeek 密钥失效由 `gpt-6.2-astra` 补位，均已透明分列）；2026-11-25 候选分支 Windows 本地复验（30 文件 `git archive`、隔离 venv 安装、`uv 0.13.9` 三条不联网冒烟、Chromium 分享卡交互 0 报错）已完成并归档于 [`tests/fresh_env_install.md`](../tests/fresh_env_install.md) 第八节；已合并至 `main`（`bd6a083`）并通过远端 GitHub Actions CI run `45569395548`（12/12，全量 458 条离线测试与三系统 `uv run` 冒烟）；真人 0/12、macOS/Linux 实装、B站 L1 公开软字幕、小宇宙实网、本地 `.mp3/.mp4` 实机 ASR、T2 实网、多宿主自然触发、插件市场实装、发布前 T1 实网冒烟与内置 OCR 均未实测并单列，不以 AI 评分或离线测试冒充。**
 
 ---
 
@@ -358,7 +358,7 @@ python scripts/fetch_content.py "<链接或整段分享文本>" [--frames] [--al
 | K-01 | P2-10 请求次数超过约定 | 第一个公众号链接实际请求 6 次（约定每个地址 1 次）。其中 5 次是为排查“字数对不上”额外发的，原因是检查脚本用 Windows 默认编码读 UTF-8 输出，脚本本身无误。已写入第 7 节 |
 | K-02 | 社媒提取器最多返回 `partial` | 设计如此：公开页面只有 meta 摘要，不当全文 |
 | K-03 | 评测样本与手册示例重复 | Phase 1 第一轮有 4 条材料与手册示例几乎相同，泛化结论只以第二轮 5 条新材料为准 |
-| K-04 | 开发机 Python 为 3.14 | 文档要求 3.10+；`main` 基线提交 `3b245db` 的远端 CI（run `45428977869`）已覆盖 Ubuntu/macOS/Windows × Python 3.10、3.12、3.14 离线测试（本候选分支尚未推送触发远端 CI），Python 3.11 仍未单独验证（不宣称覆盖全部 3.x） |
+| K-04 | 开发机 Python 为 3.14 | 文档要求 3.10+；`main` 提交 `bd6a083` 的远端 CI（run `45569395548`，12/12）已覆盖 Ubuntu/macOS/Windows × Python 3.10、3.12、3.14 离线测试，Python 3.11 仍未单独验证（不宣称覆盖全部 3.x） |
 | K-05 | 当前目录原本不是 git 仓库 | 已在 2026-11-20 执行 `git init`，分支名 `main` |
 | K-06 | L0/L1 预算与 DoD 的 10 秒目标 | PRD Phase 3 DoD 写“有字幕视频 ≤10 秒”。实测慢网络下 yt-dlp 元数据本身要 5–8 秒，10 秒预算会把字幕下载挤失败，故预算定为 20 秒（与图文一致）。本机实测 YouTube 6.5s / 16.5s，**10 秒目标在本机网络下未稳定达到**，属性能目标而非功能缺陷 |
 | K-07 | 字幕+抽帧时 `extraction_method` 的取值 | PRD 5.1 枚举只有 `asr+frames`，没有 `subtitle+frames`。字幕来源又抽帧时取 `subtitle` 并以 `keyframes` 非空表明有画面，不新造枚举值 |
@@ -372,6 +372,8 @@ python scripts/fetch_content.py "<链接或整段分享文本>" [--frames] [--al
 | K-15 | check_env 对 yt-dlp 的检测口径（P4-05 全新环境实测发现，已修复） | 两处：① `import yt_dlp` 失败时回退检测 PATH 上的命令行程序并报 `ok=true`，但视频脚本用的是 Python 库，同环境实际抓取报 `missing_dependency`——改为只认 Python 库，仅有命令行程序时 `ok=false` 并在 hint 说明原因；② `yt_dlp` 顶层无 `__version__`（在 `yt_dlp.version` 子模块），版本恒报 `unknown` 导致 120 天过旧升级提示永不触发——`unknown` 时回退读子模块。各补一条离线回归测试，修复同步全新环境复验通过 |
 
 ### 8.4 文本验收与下一步
+
+2026-11-25（M5 终验收口与 main 远端 CI 验证）：已完成 M5 多轮异构对抗审查（修补 3 轮 + 4 轮复审：Grok 终验 P0=0/P1=0/P2=0；Codex 终验 P0=0/P1=3/P2=3，全部隐私/分享卡/文档/评测席位资格已清零，剩余 3 条为 `lint_report.py` 正则启发式汉语变体按 3 轮熔断收口）、合入 `main`（`bd6a083`）并清理全部历史子工作树与旧分支、推送至公开仓库并通过远端 GitHub Actions CI [run `45569395548`](https://github.com/duyunzhoudyz/dyz-plain-talk-decoder/actions/runs/45569395548)（12/12，458 passed, 9 deselected, 33 subtests passed，含三系统 `uv run` 冒烟），准备打 `v0.1.0` tag 并发布 Release。
 
 2026-11-25（M4 本地实机复验 + M5 对抗审查文档与手册收口）：① 完成候选分支 Windows 本地复验并记入 [`tests/fresh_env_install.md`](../tests/fresh_env_install.md) 第八节：30 文件 `git archive` 纯净归档、隔离 Python 3.14.6 `venv` 安装与 `check_env.py` 通过、`uv 0.13.9` 三条不联网冒烟（`check_env.py` / `lint_report.py` / `render_card.py`）退出码 0、真实 Chromium 浏览器交互验收分享卡片（`01`/`03`/`05`）0 控制台报错；② 针对 M5 双审闭环全部文档、手册与样板问题：在 `SKILL.md` / `user-profile.md` / `README.md` 落地分享卡画像脱敏闸门（严禁把含画像原答传给 `render_card.py`），修正 `mode-social.md` 离线防暗示措辞、`s5-research.md` 单层路由说明、`style-plain-talk.md` 深度写作建议单点口径与尾随空格；全面对齐 `results.md` / `README.md` / 本文档对 R10c 预注册三门 0/3、R10b 门 B 整体未通过、已知题回归、v1 发包布局、27/32 `lint_ledger` 警告及远端 CI `45428977869` 仅属 `main` 基线 `3b245db` 的透明口径；刷新样板 `01` 历史整理稿口径并由现行 `render_card.py` 重渲 HTML，精准收口样板 `03`/`04`/`05`。
 
@@ -393,7 +395,7 @@ python scripts/fetch_content.py "<链接或整段分享文本>" [--frames] [--al
 
 2026-11-20：第七轮原始评分见 `tests/eval_round7/score.md`（2 组定向复验，14/18，不是全量）。文本 Beta 按 PRD §6.1 完成 R8：32 道冻结新题，模式 32/32、M2 组合 20/20、条件 100/102；预注册篇幅 31/32。已交付 4 题三臂盲比与真人离线盲读页。最终脚本离线回归 204 过、9 条实网未跑。完整指纹、扣分、双评差异及未验项目见 [R8 验收](../tests/eval_round8/results.md)。真人实读 0/12，不作为完成。上文第 8.1 节及早期进度行保留各轮当时的结论，不能取代本轮证据。
 
-1. **`v0.1.0` 文本发布候选收口（PRD §6.1）**：2026-11-25 用户决定取消真人盲读（R8 真人 0/12 保持原样），R10 三轮智能体匿名盲读与已知题 32 题回归已归档于 [`tests/eval_round10/results.md`](../tests/eval_round10/results.md)（R10c 偏好 21/36、9/12 题两家独胜、非生成者异构 2 家族 16/24、0/32 硬否决、0 确认回归，但**预注册 A、B、C 三门均未通过 [0/3]**：门 A 主评 96/102、深度汉字 2/3、可见字 31/32；门 B 复述 75/108 低于裸模型 83/108；门 C 净票 +6、净胜家族 1/3；「中文文本发布候选」≠「预注册工程门全通」）。2026-11-25 本机 Windows 复验（30 文件 `git archive`、隔离 venv 安装、`uv 0.13.9` 三条不联网冒烟、Chromium 分享卡交互 0 报错）已完成并记入 [`tests/fresh_env_install.md`](../tests/fresh_env_install.md) 第八节；远端 CI run `45428977869`（12/12）仅对应 `main` 基线提交 `3b245db`，本候选分支尚未推送触发远端 CI。待 M5 异构对抗复审归零并经用户拍板后再决定是否合并 `main`、推送远端与打 `v0.1.0` tag。
-2. 当前全部未通过项与未实测项以本文档顶部「当前状态」、[`tests/eval_round10/results.md`](../tests/eval_round10/results.md) 与 `README.md`「尚未实测 / 本轮未执行」清单为准（包括 R10c 预注册三门 0/3、真人盲读 0/12、macOS/Linux 实装、B站 L1 公开软字幕、小宇宙实网、本地 `.mp3/.mp4` 实机 ASR、T2 实网、多宿主自然触发、插件市场实装、发布前 T1 实网冒烟、候选分支远端 CI 与内置 OCR；早期历史局限记录保留于第 7 节验收自查行与 8.1）。
+1. **`v0.1.0` 文本发布候选收口（PRD §6.1）**：2026-11-25 用户决定取消真人盲读（R8 真人 0/12 保持原样），R10 三轮智能体匿名盲读与已知题 32 题回归已归档于 [`tests/eval_round10/results.md`](../tests/eval_round10/results.md)（R10c 偏好 21/36、9/12 题两家独胜、非生成者异构 2 家族 16/24、0/32 硬否决、0 确认回归，但**预注册 A、B、C 三门均未通过 [0/3]**：门 A 主评 96/102、深度汉字 2/3、可见字 31/32；门 B 复述 75/108 低于裸模型 83/108；门 C 净票 +6、净胜家族 1/3；「中文文本发布候选」≠「预注册工程门全通」）。2026-11-25 本机 Windows 复验（30 文件 `git archive`、隔离 venv 安装、`uv 0.13.9` 三条不联网冒烟、Chromium 分享卡交互 0 报错）已完成并记入 [`tests/fresh_env_install.md`](../tests/fresh_env_install.md) 第八节；已合入 `main`（`bd6a083`）并通过远端 GitHub Actions CI run `45569395548`（12/12，全量 458 条离线测试与三系统 `uv run` 冒烟），进入 `v0.1.0` 发布收尾。
+2. 当前全部未通过项与未实测项以本文档顶部「当前状态」、[`tests/eval_round10/results.md`](../tests/eval_round10/results.md) 与 `README.md`「尚未实测 / 本轮未执行」清单为准（包括 R10c 预注册三门 0/3、真人盲读 0/12、macOS/Linux 实装、B站 L1 公开软字幕、小宇宙实网、本地 `.mp3/.mp4` 实机 ASR、T2 实网、多宿主自然触发、插件市场实装、发布前 T1 实网冒烟与内置 OCR；早期历史局限记录保留于第 7 节验收自查行与 8.1）。
 3. B站 L1 有字幕路径仍缺公开软字幕样本（K-08），找到样本后补一条冒烟。
 4. 每个 Phase 的验收标准自查通过后，才勾选对应补测项。

@@ -120,4 +120,4 @@ B站 L1 成功样本仍缺（K-08 残留，非本次环境问题）。
    - `examples/03-prepaid-and-finance.md` 渲染卡片：自然段首段 `lead-item` 筛选保护生效、识别 2 处 caution 条目，**0 条控制台报错**；
    - `examples/05-clean-article-no-nitpick.md` 渲染卡片：干净样本 `caution_items=0` 零误标，**0 条控制台报错**。
 
-**本节复验范围边界**：本复验仅覆盖 Windows 本机离线打包、基础层隔离安装、`uv 0.13.9` 离线冒烟与浏览器本地分享卡交互，**不含**实网抓取、macOS/Linux 实机安装、多宿主自然触发、`.claude-plugin/` 插件市场实装、真实 ASR 端到端转写或候选分支远端 CI。
+**本节复验范围边界**：本复验仅覆盖 Windows 本机离线打包、基础层隔离安装、`uv 0.13.9` 离线冒烟与浏览器本地分享卡交互，**不含**实网抓取、macOS/Linux 实机安装、多宿主自然触发、`.claude-plugin/` 插件市场实装或真实 ASR 端到端转写（跨平台 12/12 离线 CI 另见 `main` `bd6a083` 的 GitHub Actions run `45569395548`）。
