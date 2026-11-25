@@ -421,10 +421,14 @@ def bits(values: Any, size: int) -> bool:
 
 
 def check_quote(quote: Any, texts: list[str]) -> None:
-    require(isinstance(quote, str) and sum(
+    message = "引句去除空白及 Markdown 排版后至少需 4 个可见字符"
+    require(isinstance(quote, str), message)
+    visible = re.sub(r"(?m)^[ \t]*(?:(?:#{1,6}|[-*+]|\d+\.)[ \t]+|>[ \t]*)+", "", quote)
+    visible = re.sub(r"\[([^\]\r\n]*)\]\((?:[^()\r\n]|\([^()\r\n]*\))*\)", r"\1", visible)
+    require(sum(
         ch.isprintable() and not ch.isspace() and category(ch) not in ("Mn", "Me")
-        for ch in re.sub(r"[`*_~]", "", quote)
-    ) >= 4, "引句去除空白及 Markdown 排版后至少需 4 个可见字符")
+        for ch in re.sub(r"[`*_~]", "", visible)
+    ) >= 4, message)
     require(any(quote.replace("\r\n", "\n") in text.replace("\r\n", "\n") for text in texts),
             "引句未出现在指定原答（需逐字引用）")
 
@@ -603,6 +607,45 @@ def gate(checks: JSON) -> JSON:
     return {"pass": all(check["pass"] for check in checks.values()), "checks": checks}
 
 
+def reader_families(study: Study, actual_readers: JSON | None) -> dict[str, str] | None:
+    if actual_readers is None:
+        return None
+    generator = canonicalize_family(study.protocol["generator"]["family"])
+    families = {}
+    for reader, row in actual_readers.items():
+        family = canonicalize_family(row["family"])
+        inferred = infer_model_family(row["model"], row["agent"])
+        if inferred is not None and inferred != family:
+            family = generator if inferred == generator else "unknown"
+        families[reader] = family
+    return families
+
+
+def reader_eligibility(study: Study, actual_families: dict[str, str] | None) -> JSON:
+    planned = study.protocol["blind_readers"]
+    target = len(planned)
+    if actual_families is None:
+        # 旧封存仍统计全席，但计划槽位不能证明实际异构。
+        return {"actual": None, "total": target, "target": target, "op": "=", "pass": False,
+                "reason": "未绑定实际通道，异构席位未验证"}
+    generator = canonicalize_family(study.protocol["generator"]["family"])
+    covered = [actual_families[seat] for seat in planned if seat in actual_families]
+    distinct = set(covered)
+    check = metric(len(distinct - {"unknown", generator}), target, target, "=")
+    reasons = []
+    if actual_families.keys() != planned.keys():
+        reasons.append("实际通道未与预注册席位一一对应")
+    if "unknown" in distinct:
+        reasons.append("有席位的家族未识别")
+    if generator in distinct:
+        reasons.append("有席位与生成者同族")
+    if len(distinct) != len(covered):
+        reasons.append("读者家族重复")
+    if reasons:
+        check.update({"pass": False, "reason": "；".join(reasons)})
+    return check
+
+
 def rubric_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[str, dict[str, JSON]], length: JSON) -> tuple[JSON, JSON, JSON]:
     a = study.protocol["thresholds"]["A"]
     detail: JSON = {"candidate": {}, "bare": {}, "r8": {}}
@@ -657,7 +700,8 @@ def rubric_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[
     return gate(checks), {"by_arm": scores, "by_id": detail, "controls": control}, supplemental
 
 
-def recall_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[str, dict[str, JSON]]) -> tuple[JSON, JSON]:
+def recall_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[str, dict[str, JSON]],
+                  actual_readers: JSON | None = None) -> tuple[JSON, JSON]:
     b = study.protocol["thresholds"]["B"]
     arms: dict[str, Counter] = {name: Counter({key: 0 for key in (*FIELDS, "total", "all_correct", "graded")}) for name in ("candidate", "bare")}
     cross = {name: Counter() for name in arms}
@@ -682,6 +726,7 @@ def recall_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: dict[
               "total": metric(cand["total"], *b["total"]), "all_correct": metric(cand["all_correct"], *b["all_correct"]),
               **{field: metric(cand[field], *b["per_field"]) for field in FIELDS},
               **{f"not_below_bare_{field}": metric(cand[field], arms["bare"][field]) for field in b["not_below_bare"]}}
+    checks["reader_eligibility"] = reader_eligibility(study, reader_families(study, actual_readers))
     return gate(checks), {"by_arm": arms, "cross_field": cross, "entries": detail}
 
 
@@ -696,11 +741,9 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
         ("by_group", ["anchors", "new"]), ("by_position", ["A", "B"]), ("same_text_cluster", ["half_weight", "other"]),
     )}
     generator = canonicalize_family(study.protocol["generator"]["family"])
-    actual_families: dict[str, str] = {}
-    for reader, row in (actual_readers or {}).items():
-        family = canonicalize_family(row["family"])
-        actual_families[reader] = generator if infer_model_family(row["model"], row["agent"]) == generator else family
-    actual_counts = {family: Counter(empty_tally) for family in actual_families.values()}
+    actual_families = reader_families(study, actual_readers)
+    actual_counts = {actual_families.get(reader, "unknown"): Counter(empty_tally)
+                     for reader in readers} if actual_families is not None else {}
     reasons = {outcome: Counter(dict.fromkeys((*REASONS, "missing"), 0)) for outcome in ("W", "L")}
     detail = []
     for key, (meta, _) in index.items():
@@ -718,8 +761,8 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
             reasons[outcome][review["status"] if review else "missing"] += 1
         entry = {"qid": qid, "reader": reader, "family_planned": family, "candidate_position": position,
                  "outcome": outcome, "original": vote, "reason_check": review}
-        if actual_readers is not None:
-            actual_family = actual_families[reader]
+        if actual_families is not None:
+            actual_family = actual_families.get(reader, "unknown")
             entry["actual_family"] = FAMILY_NAMES.get(actual_family, UNIDENTIFIED_FAMILY)
             actual_counts[actual_family][outcome] += 1
         detail.append(entry)
@@ -741,7 +784,8 @@ def preference_report(study: Study, index: dict[str, tuple[JSON, JSON]], rows: d
         "effective_net": metric(effective_net, c["effective_net_min_exclusive"], op=">"),
     }
     planned_gate = gate(checks.copy())
-    if actual_readers is None:
+    checks["reader_eligibility"] = reader_eligibility(study, actual_families)
+    if actual_families is None:
         checks["winning_families"] = {"actual": None, "target": c["winning_families"], "op": ">=", "total": None, "pass": False}
     else:
         counts["by_actual_family"] = {FAMILY_NAMES.get(family, UNIDENTIFIED_FAMILY): tally for family, tally in actual_counts.items()}
@@ -778,7 +822,7 @@ def reveal(study: Study, source: Path, packs: Path, map_path: Path, submissions:
             "映射或提交已变，或与封存记录不符")
     length, ledger = lengths(study, answers)
     a, grade, payment = rubric_report(study, index, rows, length["candidate"])
-    b, recall = recall_report(study, index, rows)
+    b, recall = recall_report(study, index, rows, readers)
     c, preference = preference_report(study, index, rows, readers)
     return {
         "round": study.protocol["round"], "scope": "AI 离线盲读；不代表真人、全平台验收或发布放行",
@@ -804,7 +848,10 @@ def markdown(report: JSON) -> str:
         for item, row in gate_report["checks"].items():
             actual = row["actual"] if row["actual"] is not None else "未测"
             shown = f"{actual}/{row['total']}" if row["total"] is not None else str(actual)
-            lines.append(f"| {name} | {item} | {shown} | {row['op']} {row['target']} | {result(row['pass'])} |")
+            verdict = result(row["pass"])
+            if row.get("reason"):
+                verdict += f"（{row['reason']}）"
+            lines.append(f"| {name} | {item} | {shown} | {row['op']} {row['target']} | {verdict} |")
     counts = report["preference"]["counts"]
     planned = report["gates"]["C"]["by_slot_planned"]["checks"]["winning_families"]
     lines.extend(["", f"计划槽位（by_slot_planned）净胜 {planned['actual']}/{planned['total']}；仅供对照，不计入实际异构家族门。"])
